@@ -45,6 +45,18 @@ import Testing
     #expect(resumed == .waitingForCodex)
 }
 
+@Test func activeTurnCanTemporarilyListenForSteering() throws {
+    let transcribing = try ConversationTransition.reduce(
+        state: .waitingForCodex,
+        event: .beginSteering
+    )
+    #expect(transcribing == .transcribing)
+    #expect(try ConversationTransition.reduce(
+        state: transcribing,
+        event: .transcriptionFinalized
+    ) == .waitingForCodex)
+}
+
 @Test func failureCanRecoverToListening() throws {
     let failed = try ConversationTransition.reduce(
         state: .transcribing,

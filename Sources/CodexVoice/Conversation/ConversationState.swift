@@ -15,6 +15,8 @@ enum ConversationEvent: Equatable, Sendable {
     case startSession
     case speechDetected
     case transcriptionFinalized
+    case discardTranscript
+    case beginSteering
     case turnStarted
     case approvalRequested
     case approvalAnswered
@@ -42,6 +44,10 @@ enum ConversationTransition {
             return .transcribing
         case (.transcribing, .transcriptionFinalized):
             return .waitingForCodex
+        case (.transcribing, .discardTranscript):
+            return .listening
+        case (.waitingForCodex, .beginSteering):
+            return .transcribing
         case (.waitingForCodex, .turnStarted):
             return .waitingForCodex
         case (.waitingForCodex, .approvalRequested):
