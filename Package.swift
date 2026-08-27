@@ -5,10 +5,10 @@ let package = Package(
     name: "CodexVoice",
     platforms: [.macOS("26.0")],
     products: [
-        .library(name: "CodexVoice", targets: ["CodexVoice"]),
+        .executable(name: "CodexVoice", targets: ["CodexVoice"]),
     ],
     targets: [
-        .target(
+        .executableTarget(
             name: "CodexVoice",
             path: "Sources/CodexVoice"
         ),
