@@ -120,6 +120,10 @@ private actor AppModelCodex: CodexServing {
         return tasks
     }
     func resumeTask(id: String) async throws {}
+    func forkTask(id: String) async throws -> String { id }
+    func startTask(cwd: String) async throws -> String { idForStart }
+
+    private var idForStart: String { tasks.first?.id ?? "thread-1" }
     func startTurn(threadId: String, text: String) async throws -> String { "turn" }
     func steerTurn(threadId: String, text: String) async throws {}
     func interruptTurn(threadId: String, turnId: String) async throws {}

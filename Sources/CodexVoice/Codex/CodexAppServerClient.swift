@@ -5,6 +5,8 @@ protocol CodexServing: AnyObject {
     func connect() async throws
     func listTasks(limit: Int) async throws -> [CodexTask]
     func resumeTask(id: String) async throws
+    func forkTask(id: String) async throws -> String
+    func startTask(cwd: String) async throws -> String
     func startTurn(threadId: String, text: String) async throws -> String
     func steerTurn(threadId: String, text: String) async throws
     func interruptTurn(threadId: String, turnId: String) async throws
@@ -138,6 +140,28 @@ actor CodexAppServerClient: CodexServing {
             method: "thread/resume",
             params: ["threadId": .string(id)]
         )
+    }
+
+    func forkTask(id: String) async throws -> String {
+        let message = try await request(
+            method: "thread/fork",
+            params: ["threadId": .string(id), "ephemeral": .bool(false)]
+        )
+        guard let threadID = message.result?["thread"]?["id"]?.string else {
+            throw CodexAppServerClientError.invalidResponse("thread/fork thread id")
+        }
+        return threadID
+    }
+
+    func startTask(cwd: String) async throws -> String {
+        let message = try await request(
+            method: "thread/start",
+            params: ["cwd": .string(cwd)]
+        )
+        guard let threadID = message.result?["thread"]?["id"]?.string else {
+            throw CodexAppServerClientError.invalidResponse("thread/start thread id")
+        }
+        return threadID
     }
 
     func startTurn(threadId: String, text: String) async throws -> String {

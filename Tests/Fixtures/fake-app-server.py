@@ -45,7 +45,11 @@ for raw in sys.stdin:
                 "nextCursor": None,
             },
         })
+    elif method == "thread/start":
+        send({"id": request_id, "result": {"thread": {"id": "thread-1"}}})
     elif method == "thread/resume":
+        send({"id": request_id, "result": {"thread": {"id": params.get("threadId")}}})
+    elif method == "thread/fork":
         send({"id": request_id, "result": {"thread": {"id": params.get("threadId")}}})
     elif method == "turn/start":
         turn_id = "turn-approval" if any(

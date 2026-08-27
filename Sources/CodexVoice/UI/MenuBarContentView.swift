@@ -18,6 +18,7 @@ struct MenuBarContentView: View {
             Divider()
             taskPicker
             connectionRow
+            voicePicker
             sessionButton
             if let approval = coordinator.activeApproval {
                 ApprovalView(
@@ -108,6 +109,36 @@ struct MenuBarContentView: View {
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .disabled(model.selectedTask == nil || model.connectionStatus != .connected)
+    }
+
+    private var voicePicker: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("VOICE").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            HStack {
+                Picker("Voice", selection: Binding(
+                    get: { runtime.synthesizer.selectedVoiceIdentifier ?? "" },
+                    set: { identifier in
+                        runtime.synthesizer.selectedVoiceIdentifier = identifier
+                        UserDefaults.standard.set(
+                            identifier,
+                            forKey: AppPreferenceKey.selectedVoiceIdentifier
+                        )
+                    }
+                )) {
+                    ForEach(runtime.synthesizer.availableVoices) { voice in
+                        Text(voice.label).tag(voice.id)
+                    }
+                }
+                .labelsHidden()
+                Button("Preview") {
+                    Task {
+                        await runtime.synthesizer.speak(
+                            "Hi Patrick. This is the selected Codex Voice."
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private var permissionSection: some View {

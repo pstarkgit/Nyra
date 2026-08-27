@@ -37,21 +37,27 @@ final class ConversationCoordinator: ObservableObject {
     private let capture: SpeechCapturing
     private let synthesizer: SpeechSynthesizing
     private let formatter: SpokenResponseFormatter
+    private let postSpeechDelay: Duration
     private var eventTask: Task<Void, Never>?
     private var activeTurnID: String?
+    private var activeThreadID: String?
     private var responseBuffer = ""
+    private var lastSpokenText = ""
+    private var lastSpeechFinishedAt: ContinuousClock.Instant?
     private var generation: UInt64 = 0
 
     init(
         codex: CodexServing,
         capture: SpeechCapturing,
         synthesizer: SpeechSynthesizing,
-        formatter: SpokenResponseFormatter = SpokenResponseFormatter()
+        formatter: SpokenResponseFormatter = SpokenResponseFormatter(),
+        postSpeechDelay: Duration = .milliseconds(1_800)
     ) {
         self.codex = codex
         self.capture = capture
         self.synthesizer = synthesizer
         self.formatter = formatter
+        self.postSpeechDelay = postSpeechDelay
         bindCaptureCallbacks()
     }
 
@@ -60,13 +66,15 @@ final class ConversationCoordinator: ObservableObject {
             throw ConversationCoordinatorError.sessionAlreadyActive
         }
         try await codex.connect()
-        try await codex.resumeTask(id: task.id)
+        activeThreadID = try await codex.startTask(cwd: task.cwd)
         selectedTask = task
         partialTranscript = ""
         latestResponse = ""
         lastError = nil
         responseBuffer = ""
         activeTurnID = nil
+        lastSpokenText = ""
+        lastSpeechFinishedAt = nil
         generation &+= 1
         startEventLoopIfNeeded()
         try transition(.startSession)
@@ -80,6 +88,7 @@ final class ConversationCoordinator: ObservableObject {
         synthesizer.stop()
         activeApproval = nil
         activeTurnID = nil
+        activeThreadID = nil
         responseBuffer = ""
         partialTranscript = ""
         inputLevel = 0
@@ -113,13 +122,13 @@ final class ConversationCoordinator: ObservableObject {
     }
 
     func cancelActiveTurn() async throws {
-        guard let task = selectedTask else {
+        guard let activeThreadID else {
             throw ConversationCoordinatorError.noActiveTask
         }
         guard let activeTurnID else {
             throw ConversationCoordinatorError.noActiveTurn
         }
-        try await codex.interruptTurn(threadId: task.id, turnId: activeTurnID)
+        try await codex.interruptTurn(threadId: activeThreadID, turnId: activeTurnID)
     }
 
     func answerApproval(_ decision: ApprovalDecision) async throws {
@@ -172,11 +181,15 @@ final class ConversationCoordinator: ObservableObject {
             discardAndResumeListening()
             return
         }
+        if isRecentSpeakerEcho(text) {
+            discardAndResumeListening()
+            return
+        }
         if let command = LocalVoiceCommand.parse(text) {
             await handle(command)
             return
         }
-        guard let task = selectedTask else {
+        guard let activeThreadID else {
             fail(ConversationCoordinatorError.noActiveTask.localizedDescription)
             return
         }
@@ -185,7 +198,7 @@ final class ConversationCoordinator: ObservableObject {
         do {
             try transition(.transcriptionFinalized)
             if steering {
-                try await codex.steerTurn(threadId: task.id, text: text)
+                try await codex.steerTurn(threadId: activeThreadID, text: text)
             } else {
                 responseBuffer = ""
                 latestResponse = ""
@@ -195,7 +208,7 @@ final class ConversationCoordinator: ObservableObject {
                 \(text)
                 """
                 activeTurnID = try await codex.startTurn(
-                    threadId: task.id,
+                    threadId: activeThreadID,
                     text: prompt
                 )
                 try transition(.turnStarted)
@@ -223,17 +236,17 @@ final class ConversationCoordinator: ObservableObject {
     }
 
     private func handle(_ event: CodexServerEvent) async {
-        guard let task = selectedTask else { return }
+        guard let activeThreadID else { return }
         switch event {
         case .agentDelta(let threadID, let turnID, let text):
-            guard threadID == task.id, turnID == activeTurnID else { return }
+            guard threadID == activeThreadID, turnID == activeTurnID else { return }
             responseBuffer += text
         case .approvalRequested(let approval):
             guard state == .waitingForCodex else { return }
             activeApproval = approval
             try? transition(.approvalRequested)
         case .turnCompleted(let threadID, let turnID, let status):
-            guard threadID == task.id, turnID == activeTurnID else { return }
+            guard threadID == activeThreadID, turnID == activeTurnID else { return }
             await finishTurn(status: status)
         case .error(let message):
             fail(message)
@@ -265,6 +278,12 @@ final class ConversationCoordinator: ObservableObject {
         let currentGeneration = generation
         if !spoken.isEmpty {
             await synthesizer.speak(spoken)
+            lastSpokenText = spoken
+            lastSpeechFinishedAt = ContinuousClock.now
+        }
+        guard currentGeneration == generation, state == .speaking else { return }
+        if postSpeechDelay > .zero {
+            try? await Task.sleep(for: postSpeechDelay)
         }
         guard currentGeneration == generation, state == .speaking else { return }
         try? transition(.speechFinished)
@@ -278,6 +297,22 @@ final class ConversationCoordinator: ObservableObject {
         if state == .listening {
             try? startCapture()
         }
+    }
+
+    private func isRecentSpeakerEcho(_ transcript: String) -> Bool {
+        guard let lastSpeechFinishedAt,
+              lastSpeechFinishedAt.duration(to: ContinuousClock.now) <= .seconds(8)
+        else { return false }
+        let spokenWords = Self.significantWords(in: lastSpokenText)
+        let transcriptWords = Self.significantWords(in: transcript)
+        guard transcriptWords.count >= 2, !spokenWords.isEmpty else { return false }
+        let overlap = transcriptWords.intersection(spokenWords).count
+        return Double(overlap) / Double(transcriptWords.count) >= 0.60
+    }
+
+    private static func significantWords(in text: String) -> Set<String> {
+        Set(text.lowercased().components(separatedBy: .alphanumerics.inverted)
+            .filter { $0.count >= 3 })
     }
 
     private func startCapture() throws {

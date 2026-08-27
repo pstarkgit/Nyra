@@ -28,6 +28,14 @@ import Testing
     #expect(detector.hasDetectedSpeech == false)
 }
 
+@Test func defaultDetectorRecognizesMeasuredSoftSpeechAndTrailingSilence() {
+    var detector = VoiceActivityDetector()
+
+    #expect(detector.consume(rms: 0.008, frameDuration: 0.10) == nil)
+    #expect(detector.consume(rms: 0.008, frameDuration: 0.10) == .speechStarted)
+    #expect(detector.consume(rms: 0.001, frameDuration: 0.75) == .utteranceEnded)
+}
+
 @Test func resetAllowsAnotherUtterance() {
     var detector = VoiceActivityDetector(
         speechThreshold: 0.03,

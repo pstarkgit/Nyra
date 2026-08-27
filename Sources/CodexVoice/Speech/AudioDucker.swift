@@ -2,6 +2,18 @@ import AudioToolbox
 import CoreAudio
 import Foundation
 
+protocol AudioDucking: AnyObject {
+    func snapshotBeforeCapture()
+    func duck()
+    func restore()
+}
+
+final class NoopAudioDucker: AudioDucking {
+    func snapshotBeforeCapture() {}
+    func duck() {}
+    func restore() {}
+}
+
 struct AudioOutputAccess {
     let defaultDevice: () -> AudioObjectID
     let readVolume: (AudioObjectID) -> Float?
@@ -54,7 +66,7 @@ struct AudioOutputAccess {
     )
 }
 
-final class AudioDucker {
+final class AudioDucker: AudioDucking {
     private let access: AudioOutputAccess
     private let duckVolume: Float
     private var device: AudioObjectID?

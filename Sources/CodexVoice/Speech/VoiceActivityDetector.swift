@@ -16,7 +16,7 @@ struct VoiceActivityDetector: Sendable {
     private var silenceDuration: TimeInterval = 0
 
     init(
-        speechThreshold: Float = 0.025,
+        speechThreshold: Float = 0.005,
         minimumSpeech: TimeInterval = 0.18,
         trailingSilence: TimeInterval = 0.75
     ) {

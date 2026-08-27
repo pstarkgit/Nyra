@@ -45,6 +45,18 @@ import Testing
     ) == .ready)
 }
 
+@Test func desktopVoiceCatalogPrefersInstalledEnglishPremiumVoice() {
+    let catalog = SystemSpeechSynthesizer.parseSayVoiceList("""
+    Samantha            en_US    # Hello! My name is Samantha.
+    Nora                nb_NO    # Hei! Jeg heter Nora.
+    Zoe (Premium)       en_US    # Hello! My name is Zoe.
+    """)
+
+    #expect(catalog.map(\.name) == ["Zoe (Premium)", "Samantha"])
+    #expect(SystemSpeechSynthesizer.preferredVoiceIdentifier(in: catalog)
+        == "say:Zoe (Premium)")
+}
+
 @MainActor
 private final class FakeSpeechDriver: SpeechSynthesisDriving {
     weak var delegate: AVSpeechSynthesizerDelegate?

@@ -30,6 +30,63 @@ import Testing
 }
 
 @MainActor
+@Test func postSpeechCooldownKeepsMicrophoneClosedUntilOutputClears() async throws {
+    let harness = CoordinatorHarness(postSpeechDelay: .milliseconds(150))
+    try await harness.coordinator.startSession(task: .fixture)
+    harness.capture.emitSpeechStarted()
+    harness.capture.emitFinal("What changed?")
+    try await waitUntil { harness.coordinator.canSteer }
+    await harness.codex.emit(.agentDelta(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        text: "Done."
+    ))
+    await harness.codex.emit(.turnCompleted(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        status: "completed"
+    ))
+    try await waitUntil { harness.synthesizer.spoken == ["Done."] }
+
+    harness.synthesizer.finish()
+    await Task.yield()
+
+    #expect(harness.coordinator.state == .speaking)
+    #expect(harness.capture.startCalls == 1)
+    try await waitUntil { harness.coordinator.state == .listening }
+    #expect(harness.capture.startCalls == 2)
+}
+
+@MainActor
+@Test func recentSpokenReplyIsDiscardedAsSpeakerEcho() async throws {
+    let harness = CoordinatorHarness()
+    try await harness.coordinator.startSession(task: .fixture)
+    harness.capture.emitSpeechStarted()
+    harness.capture.emitFinal("What changed?")
+    try await waitUntil { harness.coordinator.canSteer }
+    await harness.codex.emit(.agentDelta(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        text: "The voice threshold is fixed."
+    ))
+    await harness.codex.emit(.turnCompleted(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        status: "completed"
+    ))
+    try await waitUntil { harness.synthesizer.spoken.count == 1 }
+    harness.synthesizer.finish()
+    try await waitUntil { harness.coordinator.state == .listening }
+
+    harness.capture.emitSpeechStarted()
+    harness.capture.emitFinal("voice threshold fixed")
+    try await Task.sleep(for: .milliseconds(50))
+
+    #expect(await harness.codex.startedTexts.count == 1)
+    #expect(harness.coordinator.state == .listening)
+}
+
+@MainActor
 @Test func emptyTranscriptReturnsToListeningWithoutCodexTurn() async throws {
     let harness = CoordinatorHarness()
     try await harness.coordinator.startSession(task: .fixture)
@@ -120,11 +177,18 @@ private final class CoordinatorHarness {
     let codex = FakeCodexServer()
     let capture = FakeSpeechCapture()
     let synthesizer = FakeSpeechSynthesizer()
+    private let postSpeechDelay: Duration
+
+    init(postSpeechDelay: Duration = .zero) {
+        self.postSpeechDelay = postSpeechDelay
+    }
+
     lazy var coordinator = ConversationCoordinator(
         codex: codex,
         capture: capture,
         synthesizer: synthesizer,
-        formatter: SpokenResponseFormatter(maximumCharacters: 500)
+        formatter: SpokenResponseFormatter(maximumCharacters: 500),
+        postSpeechDelay: postSpeechDelay
     )
 }
 
@@ -144,6 +208,8 @@ private actor FakeCodexServer: CodexServing {
     func connect() async throws {}
     func listTasks(limit: Int) async throws -> [CodexTask] { [.fixture] }
     func resumeTask(id: String) async throws {}
+    func forkTask(id: String) async throws -> String { id }
+    func startTask(cwd: String) async throws -> String { "thread-1" }
     func startTurn(threadId: String, text: String) async throws -> String {
         startedTexts.append(text)
         return "turn-1"

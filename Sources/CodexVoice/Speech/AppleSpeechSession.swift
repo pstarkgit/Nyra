@@ -61,7 +61,7 @@ final class AppleSpeechSession: SpeechCapturing {
     private(set) var isCapturing = false
 
     private let audioEngine: AVAudioEngine
-    private let ducker: AudioDucker
+    private let ducker: AudioDucking
     private var sessionTask: Task<Void, Never>?
     private var analyzerInput: AsyncStream<AnalyzerInput>.Continuation?
     private var finishSignal: CaptureFinishSignal?
@@ -71,7 +71,7 @@ final class AppleSpeechSession: SpeechCapturing {
 
     init(
         audioEngine: AVAudioEngine = AVAudioEngine(),
-        ducker: AudioDucker = AudioDucker()
+        ducker: AudioDucking = AudioDucker(duckVolume: 1.0)
     ) {
         self.audioEngine = audioEngine
         self.ducker = ducker
