@@ -114,7 +114,6 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 5) {
             Text("PERMISSIONS").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
             HStack {
-                permissionPill("Speech", granted: AppleSpeechSession.speechPermission == .authorized)
                 permissionPill("Microphone", granted: AppleSpeechSession.microphonePermission == .authorized)
                 permissionPill("Hotkey", granted: GlobalHotkey.hasAccessibility)
             }

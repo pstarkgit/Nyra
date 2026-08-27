@@ -31,7 +31,7 @@ utterance. Command and file approvals always require a visible click.
 - macOS 26 or later.
 - Codex Desktop installed in `/Applications/ChatGPT.app`, or a supported `codex`
   executable on the local path.
-- Microphone, Speech Recognition, and Accessibility permission. Accessibility
+- Microphone and Accessibility permission. Accessibility
   is used only for the global Right Option hotkey, not UI automation.
 
 ## Build and run

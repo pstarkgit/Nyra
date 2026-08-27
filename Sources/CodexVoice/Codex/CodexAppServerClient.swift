@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 protocol CodexServing: AnyObject {
     func connect() async throws
@@ -20,12 +21,18 @@ enum CodexAppServerClientError: Error, Equatable, Sendable {
 }
 
 actor CodexAppServerClient: CodexServing {
+    private static let logger = Logger(
+        subsystem: "dev.starkpat.codexvoice",
+        category: "app-server"
+    )
     private let executableURL: URL
     private let arguments: [String]
     private var process: Process?
     private var standardInput: FileHandle?
     private var standardOutput: FileHandle?
     private var standardError: FileHandle?
+    private var stdoutContinuation: AsyncStream<Data>.Continuation?
+    private var stdoutReaderTask: Task<Void, Never>?
     private var receiveBuffer = Data()
     private var nextRequestID = 1
     private var pending: [RequestID: CheckedContinuation<JSONRPCMessage, Error>] = [:]
@@ -63,9 +70,14 @@ actor CodexAppServerClient: CodexServing {
         process.standardOutput = output
         process.standardError = errors
 
-        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
+        let (stdoutStream, stdoutContinuation) = AsyncStream<Data>.makeStream()
+        output.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            Task { await self?.receive(data) }
+            if data.isEmpty {
+                stdoutContinuation.finish()
+            } else {
+                stdoutContinuation.yield(data)
+            }
         }
         errors.fileHandleForReading.readabilityHandler = { handle in
             _ = handle.availableData
@@ -75,7 +87,15 @@ actor CodexAppServerClient: CodexServing {
         }
 
         try process.run()
+        Self.logger.info("launched app-server pid=\(process.processIdentifier)")
         self.process = process
+        self.stdoutContinuation = stdoutContinuation
+        stdoutReaderTask = Task { [weak self] in
+            for await data in stdoutStream {
+                guard !Task.isCancelled else { return }
+                await self?.receive(data)
+            }
+        }
         standardInput = input.fileHandleForWriting
         standardOutput = output.fileHandleForReading
         standardError = errors.fileHandleForReading
@@ -180,6 +200,10 @@ actor CodexAppServerClient: CodexServing {
         intentionalShutdown = true
         standardOutput?.readabilityHandler = nil
         standardError?.readabilityHandler = nil
+        stdoutContinuation?.finish()
+        stdoutContinuation = nil
+        stdoutReaderTask?.cancel()
+        stdoutReaderTask = nil
         try? standardInput?.close()
         if let process, process.isRunning {
             process.terminate()
@@ -202,6 +226,7 @@ actor CodexAppServerClient: CodexServing {
         }
         let id = RequestID.integer(nextRequestID)
         nextRequestID += 1
+        Self.logger.debug("request method=\(method, privacy: .public) id=\(self.nextRequestID - 1)")
         let data = try JSONRPCMessage.encodeRequest(
             id: id,
             method: method,
@@ -245,6 +270,7 @@ actor CodexAppServerClient: CodexServing {
 
     private func receive(_ data: Data) {
         guard !streamFinished else { return }
+        Self.logger.debug("stdout chunk bytes=\(data.count)")
         guard !data.isEmpty else {
             if process?.isRunning != true {
                 finishAfterDisconnect()
@@ -260,8 +286,13 @@ actor CodexAppServerClient: CodexServing {
                 continue
             }
             do {
-                handle(try JSONRPCMessage.decode(line: line))
+                let message = try JSONRPCMessage.decode(line: line)
+                Self.logger.debug(
+                    "decoded kind=\(String(describing: message.kind), privacy: .public) method=\(message.method ?? "-", privacy: .public) hasId=\(message.id != nil)"
+                )
+                handle(message)
             } catch {
+                Self.logger.error("malformed app-server JSON line bytes=\(lineData.count)")
                 eventContinuation.yield(.error("Malformed app-server message"))
             }
         }
@@ -270,6 +301,7 @@ actor CodexAppServerClient: CodexServing {
     private func handle(_ message: JSONRPCMessage) {
         if message.kind == .response, let id = message.id,
            let continuation = pending.removeValue(forKey: id) {
+            Self.logger.debug("matched response pendingRemaining=\(self.pending.count)")
             if let error = message.error {
                 continuation.resume(throwing: CodexAppServerClientError.server(
                     Self.errorMessage(from: error)
@@ -319,8 +351,13 @@ actor CodexAppServerClient: CodexServing {
     }
 
     private func processDidExit(status: Int32) {
+        Self.logger.info("app-server exited status=\(status)")
         process = nil
         standardInput = nil
+        stdoutContinuation?.finish()
+        stdoutContinuation = nil
+        stdoutReaderTask?.cancel()
+        stdoutReaderTask = nil
         if !intentionalShutdown {
             failPending(CodexAppServerClientError.processExited(status))
             eventContinuation.yield(.disconnected)

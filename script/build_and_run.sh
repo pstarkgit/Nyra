@@ -22,10 +22,12 @@ BUILD_BINARY="$(swift build --show-bin-path)/$PROCESS_NAME"
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS"
+mkdir -p "$APP_CONTENTS/Resources"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 
 /bin/cp "$ROOT_DIR/Config/CodexVoice-Info.plist" "$INFO_PLIST"
+/bin/cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_CONTENTS/Resources/AppIcon.icns"
 
 /usr/bin/codesign --force --sign - \
   --entitlements "$ROOT_DIR/Config/CodexVoice.entitlements" \

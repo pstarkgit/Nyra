@@ -30,24 +30,16 @@ import Testing
     #expect(synthesizer.isSpeaking == false)
 }
 
-@Test func speechReadinessRequiresBothPermissionsAndOnDeviceSupport() {
+@Test func speechReadinessRequiresMicrophoneAndAnalyzerSupport() {
     #expect(AppleSpeechSession.readiness(
-        speechPermission: .denied,
-        microphonePermission: .authorized,
-        supportsOnDevice: true
-    ) == .speechPermissionDenied)
-    #expect(AppleSpeechSession.readiness(
-        speechPermission: .authorized,
         microphonePermission: .denied,
         supportsOnDevice: true
     ) == .microphonePermissionDenied)
     #expect(AppleSpeechSession.readiness(
-        speechPermission: .authorized,
         microphonePermission: .authorized,
         supportsOnDevice: false
     ) == .onDeviceRecognitionUnavailable)
     #expect(AppleSpeechSession.readiness(
-        speechPermission: .authorized,
         microphonePermission: .authorized,
         supportsOnDevice: true
     ) == .ready)

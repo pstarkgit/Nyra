@@ -5,10 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 APP_NAME="Codex Voice"
 EXECUTABLE_NAME="CodexVoice"
 BUNDLE_ID="dev.starkpat.codexvoice"
+DEVELOPER_ID="Developer ID Application: Patrick Stark (P2M5LH6CVA)"
 OUTPUT_ROOT="$ROOT_DIR/.build/app"
 APP_BUNDLE="$OUTPUT_ROOT/$APP_NAME.app"
 CONTENTS="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
+RESOURCES_DIR="$CONTENTS/Resources"
 
 case "$APP_BUNDLE" in
   "$ROOT_DIR"/.build/app/*) ;;
@@ -22,18 +24,36 @@ BUILD_BINARY="$BIN_DIR/$EXECUTABLE_NAME"
 test -f "$BUILD_BINARY" -a -x "$BUILD_BINARY"
 
 /bin/rm -rf -- "$APP_BUNDLE"
-/bin/mkdir -p "$MACOS_DIR"
+/bin/mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 /bin/cp "$BUILD_BINARY" "$MACOS_DIR/$EXECUTABLE_NAME"
 /bin/chmod 755 "$MACOS_DIR/$EXECUTABLE_NAME"
 /bin/cp "$ROOT_DIR/Config/CodexVoice-Info.plist" "$CONTENTS/Info.plist"
+/bin/cp "$ROOT_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 
 /usr/bin/plutil -lint "$CONTENTS/Info.plist" >/dev/null
 actual_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$CONTENTS/Info.plist")"
 test "$actual_id" = "$BUNDLE_ID"
 
-/usr/bin/codesign --force --sign - \
-  --entitlements "$ROOT_DIR/Config/CodexVoice.entitlements" \
-  "$APP_BUNDLE" >/dev/null
+SIGN_IDENTITY="-"
+if /usr/bin/security find-identity -v -p codesigning \
+    | /usr/bin/grep -Fq "\"$DEVELOPER_ID\""; then
+  SIGN_IDENTITY="$DEVELOPER_ID"
+elif test "${CODEX_VOICE_REQUIRE_DEVELOPER_ID:-0}" = "1"; then
+  echo "required signing identity is unavailable: $DEVELOPER_ID" >&2
+  exit 1
+fi
+
+if test "$SIGN_IDENTITY" = "-"; then
+  /usr/bin/codesign --force --sign - \
+    --entitlements "$ROOT_DIR/Config/CodexVoice.entitlements" \
+    "$APP_BUNDLE" >/dev/null
+else
+  /usr/bin/codesign --force --sign "$SIGN_IDENTITY" \
+    --options runtime \
+    --timestamp \
+    --entitlements "$ROOT_DIR/Config/CodexVoice.entitlements" \
+    "$APP_BUNDLE" >/dev/null
+fi
 /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 
 printf '%s\n' "$APP_BUNDLE"

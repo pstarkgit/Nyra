@@ -27,7 +27,7 @@ validate_owned_bundle() {
   test "$(bundle_id "$app")" = "$BUNDLE_ID"
 }
 
-"$ROOT_DIR/Scripts/build-app.sh" >/dev/null
+CODEX_VOICE_REQUIRE_DEVELOPER_ID=1 "$ROOT_DIR/Scripts/build-app.sh" >/dev/null
 validate_owned_bundle "$SOURCE_APP"
 /usr/bin/codesign --verify --deep --strict "$SOURCE_APP"
 

@@ -10,7 +10,7 @@ import Testing
     #expect(plist["LSUIElement"] as? Bool == true)
     #expect(plist["LSMinimumSystemVersion"] as? String == "26.0")
     #expect((plist["NSMicrophoneUsageDescription"] as? String)?.localizedCaseInsensitiveContains("local") == true)
-    #expect((plist["NSSpeechRecognitionUsageDescription"] as? String)?.localizedCaseInsensitiveContains("on-device") == true)
+    #expect(plist["NSSpeechRecognitionUsageDescription"] == nil)
 }
 
 @Test func entitlementsDoNotGrantNetworkClientOrAppSandbox() throws {
@@ -19,16 +19,40 @@ import Testing
     #expect(entitlements["com.apple.security.network.client"] == nil)
     #expect(entitlements["com.apple.security.app-sandbox"] == nil)
     #expect(entitlements["com.apple.security.device.audio-input"] as? Bool == true)
+    #expect(entitlements["com.apple.security.personal-information.speech-recognition"] == nil)
+}
+
+@Test func speechAdapterUsesAnalyzerWithoutLegacySpeechRecognitionTCC() throws {
+    let source = try String(
+        contentsOf: repositoryRoot().appending(
+            path: "Sources/CodexVoice/Speech/AppleSpeechSession.swift"
+        ),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("SpeechAnalyzer"))
+    #expect(source.contains("SpeechTranscriber"))
+    #expect(source.contains("SFSpeechRecognizer") == false)
+    #expect(source.contains("requestAuthorization") == false)
 }
 
 @Test func packageAndRunScriptsUseCanonicalBundleIdentity() throws {
     let root = repositoryRoot()
-    let build = try String(contentsOf: root.appending(path: "Scripts/build-app.sh"))
-    let run = try String(contentsOf: root.appending(path: "script/build_and_run.sh"))
+    let build = try String(
+        contentsOf: root.appending(path: "Scripts/build-app.sh"),
+        encoding: .utf8
+    )
+    let run = try String(
+        contentsOf: root.appending(path: "script/build_and_run.sh"),
+        encoding: .utf8
+    )
 
     #expect(build.contains("dev.starkpat.codexvoice"))
     #expect(run.contains("dev.starkpat.codexvoice"))
     #expect(build.contains("codesign --verify --deep --strict"))
+    #expect(build.contains("Developer ID Application: Patrick Stark (P2M5LH6CVA)"))
+    #expect(build.contains("--options runtime"))
+    #expect(build.contains("--timestamp"))
 }
 
 private func loadPlist(_ relativePath: String) throws -> [String: Any] {

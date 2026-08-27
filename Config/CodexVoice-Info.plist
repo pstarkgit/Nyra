@@ -10,6 +10,8 @@
 	<string>CodexVoice</string>
 	<key>CFBundleIdentifier</key>
 	<string>dev.starkpat.codexvoice</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -32,8 +34,6 @@
 	<string>Codex Voice captures microphone audio for local speech recognition. Audio stays on this Mac and is not retained.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Codex Voice uses Apple on-device speech recognition to turn your voice into text sent to the selected Codex task.</string>
 	<key>NSSupportsAutomaticTermination</key>
 	<false/>
 	<key>NSSupportsSuddenTermination</key>

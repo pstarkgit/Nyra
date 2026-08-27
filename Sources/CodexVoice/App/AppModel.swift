@@ -107,7 +107,6 @@ final class AppModel: ObservableObject {
     }
 
     func requestPermissions() async {
-        _ = await AppleSpeechSession.requestSpeechPermission()
         _ = await AppleSpeechSession.requestMicrophonePermission()
         GlobalHotkey.requestAccessibility()
     }
