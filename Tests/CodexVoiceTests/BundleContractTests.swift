@@ -1,0 +1,45 @@
+import Foundation
+import Testing
+@testable import CodexVoice
+
+@Test func infoPlistDeclaresMenuBarIdentityAndLocalSpeechPrivacy() throws {
+    let plist = try loadPlist("Config/CodexVoice-Info.plist")
+
+    #expect(plist["CFBundleIdentifier"] as? String == "dev.starkpat.codexvoice")
+    #expect(plist["CFBundleExecutable"] as? String == "CodexVoice")
+    #expect(plist["LSUIElement"] as? Bool == true)
+    #expect(plist["LSMinimumSystemVersion"] as? String == "26.0")
+    #expect((plist["NSMicrophoneUsageDescription"] as? String)?.localizedCaseInsensitiveContains("local") == true)
+    #expect((plist["NSSpeechRecognitionUsageDescription"] as? String)?.localizedCaseInsensitiveContains("on-device") == true)
+}
+
+@Test func entitlementsDoNotGrantNetworkClientOrAppSandbox() throws {
+    let entitlements = try loadPlist("Config/CodexVoice.entitlements")
+
+    #expect(entitlements["com.apple.security.network.client"] == nil)
+    #expect(entitlements["com.apple.security.app-sandbox"] == nil)
+    #expect(entitlements["com.apple.security.device.audio-input"] as? Bool == true)
+}
+
+@Test func packageAndRunScriptsUseCanonicalBundleIdentity() throws {
+    let root = repositoryRoot()
+    let build = try String(contentsOf: root.appending(path: "Scripts/build-app.sh"))
+    let run = try String(contentsOf: root.appending(path: "script/build_and_run.sh"))
+
+    #expect(build.contains("dev.starkpat.codexvoice"))
+    #expect(run.contains("dev.starkpat.codexvoice"))
+    #expect(build.contains("codesign --verify --deep --strict"))
+}
+
+private func loadPlist(_ relativePath: String) throws -> [String: Any] {
+    let data = try Data(contentsOf: repositoryRoot().appending(path: relativePath))
+    let value = try PropertyListSerialization.propertyList(from: data, format: nil)
+    return try #require(value as? [String: Any])
+}
+
+private func repositoryRoot() -> URL {
+    URL(filePath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+}

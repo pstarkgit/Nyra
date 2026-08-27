@@ -25,23 +25,12 @@ mkdir -p "$APP_MACOS"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 
-cat >"$INFO_PLIST" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleExecutable</key><string>$PROCESS_NAME</string>
-  <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-  <key>CFBundleName</key><string>$APP_NAME</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>LSMinimumSystemVersion</key><string>$MIN_SYSTEM_VERSION</string>
-  <key>LSUIElement</key><true/>
-  <key>NSPrincipalClass</key><string>NSApplication</string>
-  <key>NSMicrophoneUsageDescription</key><string>Codex Voice transcribes speech locally on this Mac.</string>
-  <key>NSSpeechRecognitionUsageDescription</key><string>Codex Voice uses Apple on-device speech recognition.</string>
-</dict></plist>
-PLIST
+/bin/cp "$ROOT_DIR/Config/CodexVoice-Info.plist" "$INFO_PLIST"
 
-codesign --force --sign - "$APP_BUNDLE" >/dev/null
+/usr/bin/codesign --force --sign - \
+  --entitlements "$ROOT_DIR/Config/CodexVoice.entitlements" \
+  "$APP_BUNDLE" >/dev/null
+/usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 
 open_app() { /usr/bin/open -n "$APP_BUNDLE"; }
 
