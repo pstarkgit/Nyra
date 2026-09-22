@@ -34,6 +34,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - polly:DescribeVoices
+                  - polly:StartSpeechSynthesisStream
                   - polly:SynthesizeSpeech
                 Resource: "*"
                 Condition:

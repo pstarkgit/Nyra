@@ -209,7 +209,7 @@ private actor FakeCodexServer: CodexServing {
     func listTasks(limit: Int) async throws -> [CodexTask] { [.fixture] }
     func resumeTask(id: String) async throws {}
     func forkTask(id: String) async throws -> String { id }
-    func startTask(cwd: String) async throws -> String { "thread-1" }
+    func startTask(cwd: String, model: String?) async throws -> String { "thread-1" }
     func startTurn(threadId: String, text: String) async throws -> String {
         startedTexts.append(text)
         return "turn-1"

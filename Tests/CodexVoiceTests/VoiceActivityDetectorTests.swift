@@ -33,7 +33,8 @@ import Testing
 
     #expect(detector.consume(rms: 0.008, frameDuration: 0.10) == nil)
     #expect(detector.consume(rms: 0.008, frameDuration: 0.10) == .speechStarted)
-    #expect(detector.consume(rms: 0.001, frameDuration: 0.75) == .utteranceEnded)
+    #expect(detector.consume(rms: 0.001, frameDuration: 0.59) == nil)
+    #expect(detector.consume(rms: 0.001, frameDuration: 0.01) == .utteranceEnded)
 }
 
 @Test func resetAllowsAnotherUtterance() {

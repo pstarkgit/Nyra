@@ -9,7 +9,7 @@ struct SpokenResponse: Equatable, Sendable {
 struct SpokenResponseFormatter: Sendable {
     let maximumCharacters: Int
 
-    init(maximumCharacters: Int = 900) {
+    init(maximumCharacters: Int = 480) {
         self.maximumCharacters = max(1, maximumCharacters)
     }
 

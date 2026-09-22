@@ -52,8 +52,17 @@ def main():
     if not os.path.isfile(codex_binary) or not os.access(codex_binary, os.X_OK):
         fail("Codex binary is missing or not executable")
 
+    command = [codex_binary]
+    if os.environ.get("NYRA_FAST_CONTEXT") == "1":
+        command.extend([
+            "--disable", "memories",
+            "--enable", "skip_host_skill_discovery",
+        ])
+    elif os.environ.get("NYRA_DISABLE_MEMORIES") == "1":
+        command.extend(["--disable", "memories"])
+    command.extend(["app-server", "--listen", "stdio://"])
     process = subprocess.Popen(
-        [codex_binary, "app-server", "--listen", "stdio://"],
+        command,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
@@ -62,21 +71,30 @@ def main():
     )
     selector = selectors.DefaultSelector()
     selector.register(process.stdout, selectors.EVENT_READ)
-    deadline = time.monotonic() + 180
+    timeout = float(os.environ.get("NYRA_SMOKE_TIMEOUT", "180"))
+    deadline = time.monotonic() + timeout
+    requested_model = os.environ.get("NYRA_CODEX_MODEL")
+    memory_mode = os.environ.get("NYRA_MEMORY_MODE")
     thread_id = None
     turn_id = None
     completed_status = None
     response_text = ""
+    turn_started_at = None
+    first_delta_at = None
+    completed_at = None
 
     try:
         send(process, {
             "id": 1,
             "method": "initialize",
-            "params": {"clientInfo": {
-                "name": "nyra_smoke",
-                "title": "Nyra Smoke",
-                "version": "0.1.0",
-            }},
+            "params": {
+                "clientInfo": {
+                    "name": "nyra_smoke",
+                    "title": "Nyra Smoke",
+                    "version": "0.4.0",
+                },
+                "capabilities": {"experimentalApi": True},
+            },
         })
         while True:
             message = receive(process, selector, deadline)
@@ -87,10 +105,14 @@ def main():
             answer_server_request(process, message)
         send(process, {"method": "initialized", "params": {}})
 
+        turn_started_at = time.monotonic()
+        thread_params = {"cwd": workspace}
+        if requested_model:
+            thread_params["model"] = requested_model
         send(process, {
             "id": 2,
             "method": "thread/start",
-            "params": {"cwd": workspace},
+            "params": thread_params,
         })
         while thread_id is None:
             message = receive(process, selector, deadline)
@@ -101,6 +123,20 @@ def main():
                 if not thread_id:
                     fail("thread/start returned no thread id")
             else:
+                answer_server_request(process, message)
+
+        if memory_mode:
+            send(process, {
+                "id": 20,
+                "method": "thread/memoryMode/set",
+                "params": {"threadId": thread_id, "mode": memory_mode},
+            })
+            while True:
+                message = receive(process, selector, deadline)
+                if message.get("id") == 20:
+                    if "error" in message:
+                        fail(f"memory mode failed: {message['error'].get('message', 'unknown')}")
+                    break
                 answer_server_request(process, message)
 
         send(process, {
@@ -126,11 +162,14 @@ def main():
             method = message.get("method")
             params = message.get("params", {})
             if method == "item/agentMessage/delta" and params.get("threadId") == thread_id:
+                if first_delta_at is None:
+                    first_delta_at = time.monotonic()
                 response_text += params.get("delta", "")
             elif method == "turn/completed" and params.get("threadId") == thread_id:
                 turn = params.get("turn", {})
                 turn_id = turn_id or turn.get("id")
                 completed_status = turn.get("status")
+                completed_at = time.monotonic()
 
         marker = "NYRA_PROTOCOL_OK" in response_text
         print(json.dumps({
@@ -138,6 +177,10 @@ def main():
             "turnId": turn_id,
             "status": completed_status,
             "marker": marker,
+            "model": requested_model,
+            "memoryMode": memory_mode,
+            "ttftMs": round((first_delta_at - turn_started_at) * 1000) if first_delta_at else None,
+            "totalMs": round((completed_at - turn_started_at) * 1000) if completed_at else None,
         }, separators=(",", ":")))
         if completed_status != "completed" or not marker:
             fail("Codex turn did not complete with the expected marker")

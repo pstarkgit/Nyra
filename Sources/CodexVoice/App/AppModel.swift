@@ -6,6 +6,18 @@ enum AppPreferenceKey {
     static let selectedVoiceIdentifier = "selectedVoiceIdentifier"
     static let speechOutputProvider = "speechOutputProvider"
     static let selectedPollyVoiceID = "selectedPollyVoiceID"
+    static let selectedVoiceModelID = "selectedVoiceModelID"
+}
+
+struct VoiceModelOption: Identifiable, Equatable, Sendable {
+    let id: String
+    let label: String
+
+    static let supported = [
+        VoiceModelOption(id: "openai.gpt-5.6-luna", label: "Luna · Fast"),
+        VoiceModelOption(id: "openai.gpt-5.6-terra", label: "Terra · Balanced"),
+        VoiceModelOption(id: "openai.gpt-5.6-sol", label: "Sol · Deep"),
+    ]
 }
 
 protocol PreferenceStoring: AnyObject {
@@ -28,6 +40,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var selectedTaskID: String?
     @Published private(set) var connectionStatus: AppConnectionStatus = .disconnected
     @Published private(set) var isRefreshing = false
+    @Published private(set) var selectedVoiceModelID: String
 
     let coordinator: ConversationCoordinator
     private let codex: CodexServing
@@ -46,6 +59,13 @@ final class AppModel: ObservableObject {
         self.coordinator = coordinator
         self.preferences = preferences
         selectedTaskID = preferences.string(forKey: AppPreferenceKey.selectedTaskID)
+        if let persistedModel = preferences.string(
+            forKey: AppPreferenceKey.selectedVoiceModelID
+        ), VoiceModelOption.supported.contains(where: { $0.id == persistedModel }) {
+            selectedVoiceModelID = persistedModel
+        } else {
+            selectedVoiceModelID = "openai.gpt-5.6-terra"
+        }
     }
 
     func connectAndRefresh() async {
@@ -72,11 +92,20 @@ final class AppModel: ObservableObject {
         setSelectedTaskID(id)
     }
 
+    func selectVoiceModel(id: String) {
+        guard VoiceModelOption.supported.contains(where: { $0.id == id }) else { return }
+        selectedVoiceModelID = id
+        preferences.set(id, forKey: AppPreferenceKey.selectedVoiceModelID)
+    }
+
     func toggleSession() async {
         if coordinator.state == .idle {
             guard let selectedTask else { return }
             do {
-                try await coordinator.startSession(task: selectedTask)
+                try await coordinator.startSession(
+                    task: selectedTask,
+                    model: selectedVoiceModelID
+                )
             } catch {
                 connectionStatus = .failed(error.localizedDescription)
             }

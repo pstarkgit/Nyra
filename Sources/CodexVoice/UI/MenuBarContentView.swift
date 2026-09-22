@@ -19,6 +19,7 @@ struct MenuBarContentView: View {
             header
             Divider()
             taskPicker
+            voiceModelPicker
             connectionRow
             voicePicker
             sessionButton
@@ -95,6 +96,23 @@ struct MenuBarContentView: View {
             Text(model.connectionStatus.label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var voiceModelPicker: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("CONVERSATION MODEL")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Picker("Conversation model", selection: Binding(
+                get: { model.selectedVoiceModelID },
+                set: { model.selectVoiceModel(id: $0) }
+            )) {
+                ForEach(VoiceModelOption.supported) { option in
+                    Text(option.label).tag(option.id)
+                }
+            }
+            .labelsHidden()
         }
     }
 

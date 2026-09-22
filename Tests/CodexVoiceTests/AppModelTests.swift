@@ -59,6 +59,24 @@ import Testing
 }
 
 @MainActor
+@Test func selectingConversationModelPersistsChoice() {
+    let preferences = MemoryPreferences()
+    let codex = AppModelCodex(tasks: [.first])
+    let model = AppModel(
+        codex: codex,
+        coordinator: makeCoordinator(codex: codex),
+        preferences: preferences
+    )
+
+    #expect(model.selectedVoiceModelID == "openai.gpt-5.6-terra")
+    model.selectVoiceModel(id: "openai.gpt-5.6-sol")
+
+    #expect(model.selectedVoiceModelID == "openai.gpt-5.6-sol")
+    #expect(preferences.values[AppPreferenceKey.selectedVoiceModelID]
+        == "openai.gpt-5.6-sol")
+}
+
+@MainActor
 @Test func connectionFailureIsVisibleAndDoesNotInferEmptyAsHealthy() async {
     let codex = AppModelCodex(tasks: [], failure: AppModelTestError.offline)
     let model = AppModel(
@@ -121,7 +139,7 @@ private actor AppModelCodex: CodexServing {
     }
     func resumeTask(id: String) async throws {}
     func forkTask(id: String) async throws -> String { id }
-    func startTask(cwd: String) async throws -> String { idForStart }
+    func startTask(cwd: String, model: String?) async throws -> String { idForStart }
 
     private var idForStart: String { tasks.first?.id ?? "thread-1" }
     func startTurn(threadId: String, text: String) async throws -> String { "turn" }

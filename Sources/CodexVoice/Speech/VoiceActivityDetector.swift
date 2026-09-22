@@ -18,7 +18,7 @@ struct VoiceActivityDetector: Sendable {
     init(
         speechThreshold: Float = 0.005,
         minimumSpeech: TimeInterval = 0.18,
-        trailingSilence: TimeInterval = 0.75
+        trailingSilence: TimeInterval = 0.60
     ) {
         self.speechThreshold = max(0, speechThreshold)
         self.minimumSpeech = max(0, minimumSpeech)

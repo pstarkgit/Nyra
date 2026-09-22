@@ -90,6 +90,77 @@ actor PollySpeechService {
         return data
     }
 
+    func synthesizeStreaming(
+        _ text: String
+    ) async throws -> AsyncThrowingStream<Data, Error> {
+        // SigV4 event streams form one chained signature sequence. Resolve the
+        // MCS-backed profile once so a credential refresh cannot change keys
+        // between TextEvent and CloseStreamEvent.
+        let profileResolver = ProfileAWSCredentialIdentityResolver(
+            profileName: configuration.profile
+        )
+        let identity = try await profileResolver.getIdentity()
+        let pinnedConfiguration = try await PollyClient.PollyClientConfig(
+            awsCredentialIdentityResolver: StaticAWSCredentialIdentityResolver(identity),
+            region: configuration.region
+        )
+        let streamingClient = PollyClient(config: pinnedConfiguration)
+        let actions = AsyncThrowingStream<
+            PollyClientTypes.StartSpeechSynthesisStreamActionStream,
+            Error
+        > { continuation in
+            Task {
+                continuation.yield(.textevent(.init(
+                    flushStreamConfiguration: .init(force: true),
+                    text: text,
+                    textType: .text
+                )))
+                try? await Task.sleep(for: .milliseconds(100))
+                continuation.yield(.closestreamevent(.init()))
+                continuation.finish()
+            }
+        }
+        let input = StartSpeechSynthesisStreamInput(
+            actionStream: actions,
+            engine: configuration.engine,
+            outputFormat: .pcm,
+            sampleRate: "16000",
+            voiceId: configuration.voice
+        )
+        let output = try await streamingClient.startSpeechSynthesisStream(input: input)
+        guard let events = output.eventStream else {
+            throw PollySpeechServiceError.emptyAudio
+        }
+
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    var yieldedAudio = false
+                    for try await event in events {
+                        switch event {
+                        case .audioevent(let audio):
+                            if let chunk = audio.audioChunk, !chunk.isEmpty {
+                                yieldedAudio = true
+                                continuation.yield(chunk)
+                            }
+                        case .streamclosedevent:
+                            break
+                        case .sdkUnknown:
+                            break
+                        }
+                    }
+                    if yieldedAudio {
+                        continuation.finish()
+                    } else {
+                        continuation.finish(throwing: PollySpeechServiceError.emptyAudio)
+                    }
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     func availableGenerativeVoices() async throws -> [PollyVoiceOption] {
         var voices: [PollyVoiceOption] = []
         var nextToken: String?

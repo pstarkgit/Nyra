@@ -6,7 +6,7 @@ protocol CodexServing: AnyObject {
     func listTasks(limit: Int) async throws -> [CodexTask]
     func resumeTask(id: String) async throws
     func forkTask(id: String) async throws -> String
-    func startTask(cwd: String) async throws -> String
+    func startTask(cwd: String, model: String?) async throws -> String
     func startTurn(threadId: String, text: String) async throws -> String
     func steerTurn(threadId: String, text: String) async throws
     func interruptTurn(threadId: String, turnId: String) async throws
@@ -109,7 +109,7 @@ actor CodexAppServerClient: CodexServing {
                     "clientInfo": .object([
                         "name": .string("nyra"),
                         "title": .string("Nyra"),
-                        "version": .string("0.3.0"),
+                        "version": .string("0.4.0"),
                     ]),
                 ]
             )
@@ -153,10 +153,12 @@ actor CodexAppServerClient: CodexServing {
         return threadID
     }
 
-    func startTask(cwd: String) async throws -> String {
+    func startTask(cwd: String, model: String?) async throws -> String {
+        var params: [String: JSONValue] = ["cwd": .string(cwd)]
+        if let model { params["model"] = .string(model) }
         let message = try await request(
             method: "thread/start",
-            params: ["cwd": .string(cwd)]
+            params: params
         )
         guard let threadID = message.result?["thread"]?["id"]?.string else {
             throw CodexAppServerClientError.invalidResponse("thread/start thread id")

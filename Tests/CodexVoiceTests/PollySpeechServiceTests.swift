@@ -17,11 +17,32 @@ func livePollyGenerativeCanaryReturnsPlayableAudio() async throws {
     let configuration = PollySpeechConfiguration()
     let service = try PollySpeechService(configuration: configuration)
     let voices = try await service.availableGenerativeVoices()
-    let data = try await service.synthesize("Nyra Polly viability probe successful.")
+    let started = ContinuousClock.now
+    let stream = try await service.synthesizeStreaming(
+        "Nyra Polly streaming viability probe successful."
+    )
+    var firstChunkMilliseconds: Double?
+    var audioBytes = 0
+    for try await chunk in stream {
+        if firstChunkMilliseconds == nil {
+            firstChunkMilliseconds = milliseconds(
+                from: started.duration(to: ContinuousClock.now)
+            )
+        }
+        audioBytes += chunk.count
+    }
 
     #expect(voices.contains(where: { $0.id == "Danielle" }))
-    #expect(data.count > 1_000)
-    _ = try AVAudioPlayer(data: data)
+    #expect(firstChunkMilliseconds != nil)
+    #expect(audioBytes > 1_000)
+    #expect(audioBytes.isMultiple(of: MemoryLayout<Int16>.size))
+    print("POLLY_STREAM_FIRST_CHUNK_MS=\(Int(firstChunkMilliseconds ?? 0))")
+}
+
+private func milliseconds(from duration: Duration) -> Double {
+    let components = duration.components
+    return Double(components.seconds) * 1_000
+        + Double(components.attoseconds) / 1_000_000_000_000_000
 }
 
 @MainActor

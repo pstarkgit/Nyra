@@ -17,7 +17,17 @@ Apple voice instead of silently dropping the response.
 The menu-bar panel lets you switch at any time between **Apple On-Device** and
 **AWS Polly** output. Each provider remembers its own selected voice. Nyra loads
 the current Polly Generative catalog from AWS and the installed English Apple
-voice catalog from macOS.
+voice catalog from macOS. Polly playback uses bidirectional PCM streaming so
+audio can begin before the complete waveform is generated.
+
+Nyra also lets you choose the Codex conversation model. Terra is the default
+balanced voice model; Luna and Sol remain available for fast or deeper work.
+
+If **Start voice chat** appears in the ChatGPT desktop task, use that native
+GPT-Live experience for the lowest latency and full-duplex interruption. Nyra's
+direct Codex realtime probe advertises ChatGPT voices including Maple, but that
+API requires OpenAI API-key authentication; a Bedrock-backed Codex session does
+not supply it. Nyra therefore remains the no-OpenAI-key fallback.
 
 ## Conversation flow
 

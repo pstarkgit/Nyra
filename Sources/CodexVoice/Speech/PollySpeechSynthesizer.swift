@@ -32,6 +32,10 @@ final class PollySpeechSynthesizer: NSObject, ObservableObject, SpeechSynthesizi
         PollyClientTypes.VoiceId
     ) async throws -> Data
     typealias VoiceCatalogOperation = @Sendable () async throws -> [PollyVoiceOption]
+    typealias StreamingSynthesisOperation = @Sendable (
+        String,
+        PollyClientTypes.VoiceId
+    ) async throws -> AsyncThrowingStream<Data, Error>
 
     @Published private(set) var playbackState: PollyPlaybackState = .ready
     @Published private(set) var provider: SpeechOutputProvider
@@ -44,10 +48,12 @@ final class PollySpeechSynthesizer: NSObject, ObservableObject, SpeechSynthesizi
 
     private let baseConfiguration: PollySpeechConfiguration
     private let synthesize: SynthesisOperation
+    private let synthesizeStreaming: StreamingSynthesisOperation?
     private let loadVoiceCatalog: VoiceCatalogOperation
     private let fallback: SpeechSynthesizing
     private let systemFallback: SystemSpeechSynthesizer?
     private let preferences: PreferenceStoring?
+    private let streamPlayer: PCMStreamPlayer?
     private var player: AVAudioPlayer?
     private var completion: CheckedContinuation<Void, Never>?
     private var generation: UInt64 = 0
@@ -103,6 +109,12 @@ final class PollySpeechSynthesizer: NSObject, ObservableObject, SpeechSynthesizi
             let service = try PollySpeechService(configuration: selectedConfiguration)
             return try await service.synthesize(text)
         }
+        synthesizeStreaming = { text, voice in
+            var selectedConfiguration = configuration
+            selectedConfiguration.voice = voice
+            let service = try PollySpeechService(configuration: selectedConfiguration)
+            return try await service.synthesizeStreaming(text)
+        }
         loadVoiceCatalog = {
             let service = try PollySpeechService(configuration: configuration)
             return try await service.availableGenerativeVoices()
@@ -110,6 +122,7 @@ final class PollySpeechSynthesizer: NSObject, ObservableObject, SpeechSynthesizi
         self.fallback = fallback
         systemFallback = fallback
         self.preferences = preferences
+        streamPlayer = PCMStreamPlayer()
         appleVoices = fallback.availableVoices
         provider = SpeechOutputProvider(rawValue: preferences.string(
             forKey: AppPreferenceKey.speechOutputProvider
@@ -128,10 +141,12 @@ final class PollySpeechSynthesizer: NSObject, ObservableObject, SpeechSynthesizi
     ) {
         baseConfiguration = PollySpeechConfiguration()
         self.synthesize = synthesize
+        synthesizeStreaming = nil
         self.loadVoiceCatalog = loadVoiceCatalog
         self.fallback = fallback
         systemFallback = nil
         preferences = nil
+        streamPlayer = nil
         appleVoices = []
         self.provider = provider
         self.selectedPollyVoiceID = selectedPollyVoiceID
@@ -203,6 +218,15 @@ final class PollySpeechSynthesizer: NSObject, ObservableObject, SpeechSynthesizi
         do {
             let voice = PollyClientTypes.VoiceId(rawValue: selectedPollyVoiceID)
                 ?? baseConfiguration.voice
+            if let synthesizeStreaming, let streamPlayer {
+                let stream = try await synthesizeStreaming(text, voice)
+                guard currentGeneration == generation else { return }
+                playbackState = .speaking
+                try await streamPlayer.play(stream)
+                guard currentGeneration == generation else { return }
+                playbackState = .ready
+                return
+            }
             let data = try await synthesize(text, voice)
             guard currentGeneration == generation else { return }
             let player = try AVAudioPlayer(data: data)
@@ -225,6 +249,7 @@ final class PollySpeechSynthesizer: NSObject, ObservableObject, SpeechSynthesizi
 
     func stop() {
         generation &+= 1
+        streamPlayer?.stop()
         player?.stop()
         fallback.stop()
         finishPlayback()

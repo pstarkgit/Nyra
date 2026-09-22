@@ -51,7 +51,7 @@ final class ConversationCoordinator: ObservableObject {
         capture: SpeechCapturing,
         synthesizer: SpeechSynthesizing,
         formatter: SpokenResponseFormatter = SpokenResponseFormatter(),
-        postSpeechDelay: Duration = .milliseconds(1_800)
+        postSpeechDelay: Duration = .milliseconds(600)
     ) {
         self.codex = codex
         self.capture = capture
@@ -61,12 +61,12 @@ final class ConversationCoordinator: ObservableObject {
         bindCaptureCallbacks()
     }
 
-    func startSession(task: CodexTask) async throws {
+    func startSession(task: CodexTask, model: String? = nil) async throws {
         guard state == .idle else {
             throw ConversationCoordinatorError.sessionAlreadyActive
         }
         try await codex.connect()
-        activeThreadID = try await codex.startTask(cwd: task.cwd)
+        activeThreadID = try await codex.startTask(cwd: task.cwd, model: model)
         selectedTask = task
         partialTranscript = ""
         latestResponse = ""
@@ -203,7 +203,7 @@ final class ConversationCoordinator: ObservableObject {
                 responseBuffer = ""
                 latestResponse = ""
                 let prompt = """
-                [Voice session: respond in concise spoken prose. Put code and long technical detail in files or the task transcript; finish with the outcome first.]
+                [Voice session: answer immediately in natural conversational prose, usually one or two short sentences. Lead with the direct answer. Do not narrate internal reasoning. Put code and technical detail in files or the task transcript.]
 
                 \(text)
                 """
