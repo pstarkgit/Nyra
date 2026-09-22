@@ -124,6 +124,157 @@ import Testing
     #expect(audio.stopCount == 1)
 }
 
+@MainActor
+@Test func novaControllerListensBeforeResponseHeadersAndSendsEarlyFrames() async throws {
+    let probe = NovaConnectionProbe(mode: .consumeInput)
+    let session = NovaSonicSession {
+        input, configuration, output, startInput in
+        try await probe.run(
+            input: input,
+            configuration: configuration,
+            output: output,
+            startInput: startInput
+        )
+    }
+    let audio = FakeNovaAudioIO()
+    let controller = NovaConversationController(session: session, audioIO: audio)
+
+    try await controller.start(voiceID: "tiffany")
+    #expect(controller.state == .listening)
+    try await waitUntil { await probe.hasStarted() }
+
+    audio.emitInput(Data(repeating: 7, count: 1_024))
+    try await waitUntil { await probe.inputEventCount() >= 7 }
+    #expect(await probe.inputEventCount() >= 7)
+
+    await controller.end()
+    try await waitUntil { await probe.hasExited() }
+}
+
+@MainActor
+@Test func novaControllerSurfacesAsynchronousConnectionFailure() async throws {
+    let probe = NovaConnectionProbe(mode: .deferredFailure)
+    let session = NovaSonicSession {
+        input, configuration, output, startInput in
+        try await probe.run(
+            input: input,
+            configuration: configuration,
+            output: output,
+            startInput: startInput
+        )
+    }
+    let audio = FakeNovaAudioIO()
+    let controller = NovaConversationController(session: session, audioIO: audio)
+
+    try await controller.start(voiceID: "tiffany")
+    #expect(controller.state == .listening)
+    try await waitUntil { await probe.hasStarted() }
+    await probe.requestFailure()
+
+    try await waitUntil {
+        if case .failed = controller.state { return true }
+        return false
+    }
+    #expect(controller.lastError == "Nova test disconnected")
+    try await waitUntil { await probe.hasExited() }
+}
+
+@Test func novaSessionCancellationClosesInputAndOutputCleanly() async throws {
+    let probe = NovaConnectionProbe(mode: .consumeInput)
+    let session = NovaSonicSession {
+        input, configuration, output, startInput in
+        try await probe.run(
+            input: input,
+            configuration: configuration,
+            output: output,
+            startInput: startInput
+        )
+    }
+    let events = try await session.start(voiceID: "tiffany")
+    let outputClosed = Task {
+        do {
+            for try await _ in events {}
+            return true
+        } catch {
+            return false
+        }
+    }
+    try await waitUntilOffMain { await probe.hasStarted() }
+
+    await session.stop()
+
+    #expect(await outputClosed.value)
+    try await waitUntilOffMain { await probe.hasExited() }
+    do {
+        try await session.sendAudio(Data([1, 2]))
+        Issue.record("Audio send unexpectedly succeeded after session cancellation")
+    } catch let error as NovaSonicSessionError {
+        #expect(error == .inactive)
+    }
+}
+
+private actor NovaConnectionProbe {
+    enum Mode: Sendable {
+        case consumeInput
+        case deferredFailure
+    }
+
+    private let mode: Mode
+    private var started = false
+    private var exited = false
+    private var eventCount = 0
+    private var failureRequested = false
+
+    init(mode: Mode) {
+        self.mode = mode
+    }
+
+    func run(
+        input: NovaSonicInputStream,
+        configuration: NovaSonicConfiguration,
+        output: NovaSonicOutputContinuation,
+        startInput: NovaSonicInputStarter
+    ) async throws {
+        _ = configuration
+        _ = output
+        started = true
+        defer { exited = true }
+        await startInput.start()
+
+        switch mode {
+        case .consumeInput:
+            for try await _ in input {
+                eventCount += 1
+            }
+        case .deferredFailure:
+            while !failureRequested {
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            throw FakeNovaError.disconnected
+        }
+    }
+
+    func requestFailure() {
+        failureRequested = true
+    }
+
+    func hasStarted() -> Bool { started }
+    func hasExited() -> Bool { exited }
+    func inputEventCount() -> Int { eventCount }
+}
+
+private func waitUntilOffMain(
+    timeout: Duration = .seconds(1),
+    condition: @escaping @Sendable () async -> Bool
+) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !(await condition()) {
+        if clock.now >= deadline { throw FakeNovaError.disconnected }
+        try await Task.sleep(for: .milliseconds(5))
+    }
+}
+
 private enum FakeNovaError: LocalizedError {
     case disconnected
     var errorDescription: String? { "Nova test disconnected" }

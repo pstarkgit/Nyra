@@ -150,19 +150,59 @@ struct NovaSonicInputEventFactory: Sendable {
     """
 }
 
+typealias NovaSonicInputStream = AsyncThrowingStream<
+    BedrockRuntimeClientTypes.InvokeModelWithBidirectionalStreamInput,
+    Error
+>
+typealias NovaSonicOutputContinuation = AsyncThrowingStream<
+    NovaSonicOutputEvent,
+    Error
+>.Continuation
+final class NovaSonicInputStarter: @unchecked Sendable {
+    private let action: @Sendable () async -> Void
+
+    init(action: @escaping @Sendable () async -> Void) {
+        self.action = action
+    }
+
+    func start() async {
+        await action()
+    }
+}
+
+typealias NovaSonicConnectionRunner = @Sendable (
+    NovaSonicInputStream,
+    NovaSonicConfiguration,
+    NovaSonicOutputContinuation,
+    NovaSonicInputStarter
+) async throws -> Void
+
 actor NovaSonicSession: NovaSonicStreaming {
     private let configuration: NovaSonicConfiguration
-    private var inputContinuation: AsyncThrowingStream<
-        BedrockRuntimeClientTypes.InvokeModelWithBidirectionalStreamInput,
-        Error
-    >.Continuation?
+    private let connectionRunner: NovaSonicConnectionRunner
+    private var inputContinuation: NovaSonicInputStream.Continuation?
+    private var outputContinuation: NovaSonicOutputContinuation?
     private var outputTask: Task<Void, Never>?
     private var factory: NovaSonicInputEventFactory?
+    private var pendingAudioFrames: [Data] = []
     private var generation: UInt64 = 0
+    private var inputStarted = false
     private var active = false
 
-    init(configuration: NovaSonicConfiguration = NovaSonicConfiguration()) {
+    init(
+        configuration: NovaSonicConfiguration = NovaSonicConfiguration(),
+        connectionRunner: NovaSonicConnectionRunner? = nil
+    ) {
         self.configuration = configuration
+        self.connectionRunner = connectionRunner ?? {
+            input, configuration, output, startInput in
+            try await Self.runBedrockConnection(
+                input: input,
+                configuration: configuration,
+                output: output,
+                startInput: startInput
+            )
+        }
     }
 
     func start(
@@ -173,17 +213,11 @@ actor NovaSonicSession: NovaSonicStreaming {
             throw NovaSonicSessionError.unsupportedVoice(voiceID)
         }
 
-        let profileResolver = ProfileAWSCredentialIdentityResolver(
-            profileName: configuration.profile
-        )
-        let identity = try await profileResolver.getIdentity()
-        let clientConfiguration = try await BedrockRuntimeClient.BedrockRuntimeClientConfig(
-            awsCredentialIdentityResolver: StaticAWSCredentialIdentityResolver(identity),
-            region: configuration.region
-        )
-        let client = BedrockRuntimeClient(config: clientConfiguration)
-        let (input, continuation) = AsyncThrowingStream<
-            BedrockRuntimeClientTypes.InvokeModelWithBidirectionalStreamInput,
+        // Audio can begin immediately. Frames remain ordered here until the
+        // connection task has built its client and starts the input producer.
+        let (input, continuation) = NovaSonicInputStream.makeStream()
+        let (events, outputContinuation) = AsyncThrowingStream<
+            NovaSonicOutputEvent,
             Error
         >.makeStream()
         let factory = NovaSonicInputEventFactory(
@@ -194,20 +228,15 @@ actor NovaSonicSession: NovaSonicStreaming {
         generation &+= 1
         let currentGeneration = generation
         active = true
+        inputStarted = false
+        pendingAudioFrames = []
         self.factory = factory
         inputContinuation = continuation
-        for event in factory.openingEvents() {
-            continuation.yield(Self.chunk(event))
-        }
+        self.outputContinuation = outputContinuation
 
-        let (events, outputContinuation) = AsyncThrowingStream<
-            NovaSonicOutputEvent,
-            Error
-        >.makeStream()
         let task = Task { [weak self] in
             guard let self else { return }
             await self.consume(
-                client: client,
                 input: input,
                 output: outputContinuation,
                 generation: currentGeneration
@@ -215,6 +244,7 @@ actor NovaSonicSession: NovaSonicStreaming {
         }
         outputTask = task
         outputContinuation.onTermination = { @Sendable _ in task.cancel() }
+        try? await Task.sleep(for: .milliseconds(50))
         return events
     }
 
@@ -223,66 +253,45 @@ actor NovaSonicSession: NovaSonicStreaming {
             throw NovaSonicSessionError.inactive
         }
         guard !data.isEmpty else { return }
-        inputContinuation.yield(Self.chunk(factory.audioEvent(data)))
+        if inputStarted {
+            inputContinuation.yield(Self.chunk(factory.audioEvent(data)))
+        } else {
+            pendingAudioFrames.append(data)
+        }
     }
 
     func stop() async {
         generation &+= 1
         active = false
-        if let inputContinuation, let factory {
+        if inputStarted, let inputContinuation, let factory {
             for event in factory.closingEvents() {
                 inputContinuation.yield(Self.chunk(event))
             }
-            inputContinuation.finish()
         }
+        inputContinuation?.finish()
         self.inputContinuation = nil
         self.factory = nil
+        pendingAudioFrames = []
+        inputStarted = false
+        outputContinuation?.finish()
+        outputContinuation = nil
+
         let task = outputTask
         outputTask = nil
-        if let task {
-            Task {
-                try? await Task.sleep(for: .milliseconds(250))
-                task.cancel()
-            }
-        }
+        task?.cancel()
+        await task?.value
     }
 
     private func consume(
-        client: BedrockRuntimeClient,
-        input: AsyncThrowingStream<
-            BedrockRuntimeClientTypes.InvokeModelWithBidirectionalStreamInput,
-            Error
-        >,
-        output: AsyncThrowingStream<NovaSonicOutputEvent, Error>.Continuation,
+        input: NovaSonicInputStream,
+        output: NovaSonicOutputContinuation,
         generation: UInt64
     ) async {
+        let startInput = NovaSonicInputStarter(action: { [weak self] in
+            await self?.beginInput(generation: generation)
+        })
         do {
-            let response = try await client.invokeModelWithBidirectionalStream(
-                input: InvokeModelWithBidirectionalStreamInput(
-                    body: input,
-                    modelId: configuration.modelID
-                )
-            )
-            guard let body = response.body else {
-                throw NovaSonicSessionError.missingOutputStream
-            }
-            var parser = NovaSonicEventParser()
-            for try await sdkEvent in body {
-                try Task.checkCancellation()
-                let data: Data
-                switch sdkEvent {
-                case .chunk(let payload):
-                    guard let bytes = payload.bytes else {
-                        throw NovaSonicEventParserError.malformedEvent
-                    }
-                    data = bytes
-                case .sdkUnknown(let event):
-                    throw NovaSonicSessionError.unknownSDKEvent(event)
-                }
-                for event in try parser.parse(data) {
-                    output.yield(event)
-                }
-            }
+            try await connectionRunner(input, configuration, output, startInput)
             output.finish()
         } catch is CancellationError {
             output.finish()
@@ -294,12 +303,85 @@ actor NovaSonicSession: NovaSonicStreaming {
             active = false
             inputContinuation?.finish()
             inputContinuation = nil
+            outputContinuation = nil
             factory = nil
+            pendingAudioFrames = []
+            inputStarted = false
             outputTask = nil
         }
     }
 
-    private static func chunk(
+    private func beginInput(generation: UInt64) {
+        guard generation == self.generation,
+              active,
+              !inputStarted,
+              let inputContinuation,
+              let factory else { return }
+
+        for event in factory.openingEvents() {
+            inputContinuation.yield(Self.chunk(event))
+        }
+        for frame in pendingAudioFrames {
+            inputContinuation.yield(Self.chunk(factory.audioEvent(frame)))
+        }
+        pendingAudioFrames = []
+        inputStarted = true
+    }
+
+    private nonisolated static func runBedrockConnection(
+        input: NovaSonicInputStream,
+        configuration: NovaSonicConfiguration,
+        output: NovaSonicOutputContinuation,
+        startInput: NovaSonicInputStarter
+    ) async throws {
+        let awsDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: ".aws", directoryHint: .isDirectory)
+        let profileResolver = ProfileAWSCredentialIdentityResolver(
+            profileName: configuration.profile,
+            configFilePath: awsDirectory.appending(path: "config").path,
+            credentialsFilePath: awsDirectory.appending(path: "credentials").path
+        )
+        let identity = try await profileResolver.getIdentity()
+        let clientConfiguration = try await BedrockRuntimeClient.BedrockRuntimeClientConfig(
+            awsCredentialIdentityResolver: StaticAWSCredentialIdentityResolver(identity),
+            region: configuration.region
+        )
+        let client = BedrockRuntimeClient(config: clientConfiguration)
+
+        // Match the proven canary ordering: construct the client first, then
+        // produce input concurrently with the invoke that consumes it.
+        let producer = Task { await startInput.start() }
+        defer { producer.cancel() }
+        let response = try await client.invokeModelWithBidirectionalStream(
+            input: InvokeModelWithBidirectionalStreamInput(
+                body: input,
+                modelId: configuration.modelID
+            )
+        )
+        guard let body = response.body else {
+            throw NovaSonicSessionError.missingOutputStream
+        }
+
+        var parser = NovaSonicEventParser()
+        for try await sdkEvent in body {
+            try Task.checkCancellation()
+            let data: Data
+            switch sdkEvent {
+            case .chunk(let payload):
+                guard let bytes = payload.bytes else {
+                    throw NovaSonicEventParserError.malformedEvent
+                }
+                data = bytes
+            case .sdkUnknown(let event):
+                throw NovaSonicSessionError.unknownSDKEvent(event)
+            }
+            for event in try parser.parse(data) {
+                output.yield(event)
+            }
+        }
+    }
+
+    private nonisolated static func chunk(
         _ data: Data
     ) -> BedrockRuntimeClientTypes.InvokeModelWithBidirectionalStreamInput {
         .chunk(.init(bytes: data))
