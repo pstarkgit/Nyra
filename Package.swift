@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS("26.0")],
     products: [
         .executable(name: "Nyra", targets: ["CodexVoice"]),
+        .executable(name: "NovaSonicCanary", targets: ["NovaSonicCanary"]),
     ],
     dependencies: [
         .package(
@@ -17,10 +18,19 @@ let package = Package(
         .executableTarget(
             name: "CodexVoice",
             dependencies: [
+                .product(name: "AWSBedrockRuntime", package: "aws-sdk-swift"),
                 .product(name: "AWSPolly", package: "aws-sdk-swift"),
                 .product(name: "AWSSDKIdentity", package: "aws-sdk-swift"),
             ],
             path: "Sources/CodexVoice"
+        ),
+        .executableTarget(
+            name: "NovaSonicCanary",
+            dependencies: [
+                .product(name: "AWSBedrockRuntime", package: "aws-sdk-swift"),
+                .product(name: "AWSSDKIdentity", package: "aws-sdk-swift"),
+            ],
+            path: "Tools/NovaSonicCanary"
         ),
         .testTarget(
             name: "CodexVoiceTests",

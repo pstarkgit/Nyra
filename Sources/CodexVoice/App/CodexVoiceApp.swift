@@ -9,6 +9,9 @@ final class AppRuntime: ObservableObject {
     let capture: AppleSpeechSession
     let synthesizer: PollySpeechSynthesizer
     let coordinator: ConversationCoordinator
+    let novaSession: NovaSonicSession
+    let novaAudio: NovaAudioIO
+    let nova: NovaConversationController
     let model: AppModel
     let hotkey: GlobalHotkey
     let orb: VoiceOrbPanelController
@@ -35,7 +38,20 @@ final class AppRuntime: ObservableObject {
             capture: capture,
             synthesizer: synthesizer
         )
-        model = AppModel(codex: codex, coordinator: coordinator)
+        novaSession = NovaSonicSession()
+        novaAudio = NovaAudioIO(
+            audioEngine: audioEngine,
+            inputDevices: inputDevices
+        )
+        nova = NovaConversationController(
+            session: novaSession,
+            audioIO: novaAudio
+        )
+        model = AppModel(
+            codex: codex,
+            coordinator: coordinator,
+            nova: nova
+        )
         hotkey = GlobalHotkey()
         orb = VoiceOrbPanelController(coordinator: coordinator)
         orb.model = model
@@ -63,7 +79,8 @@ final class AppRuntime: ObservableObject {
     }
 
     func quit() {
-        Task { @MainActor [coordinator] in
+        Task { @MainActor [coordinator, nova] in
+            await nova.end()
             await coordinator.shutdown()
             NSApp.terminate(nil)
         }
@@ -85,17 +102,26 @@ struct NyraApp: App {
         MenuBarExtra {
             MenuBarContentView(runtime: runtime)
         } label: {
-            VoiceStatusIcon(coordinator: runtime.coordinator)
+            VoiceStatusIcon(
+                model: runtime.model,
+                coordinator: runtime.coordinator,
+                nova: runtime.nova
+            )
         }
         .menuBarExtraStyle(.window)
     }
 }
 
 private struct VoiceStatusIcon: View {
+    @ObservedObject var model: AppModel
     @ObservedObject var coordinator: ConversationCoordinator
+    @ObservedObject var nova: NovaConversationController
 
     var body: some View {
-        Image(systemName: coordinator.state.menuBarSymbol)
-            .accessibilityLabel("Nyra: \(coordinator.state.displayName)")
+        let natural = model.selectedConversationEngine == .naturalRealtime
+        let symbol = natural ? nova.state.menuBarSymbol : coordinator.state.menuBarSymbol
+        let status = natural ? nova.state.displayName : coordinator.state.displayName
+        Image(systemName: symbol)
+            .accessibilityLabel("Nyra: \(status)")
     }
 }

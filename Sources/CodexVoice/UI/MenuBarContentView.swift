@@ -5,6 +5,7 @@ struct MenuBarContentView: View {
     @ObservedObject var runtime: AppRuntime
     @ObservedObject private var model: AppModel
     @ObservedObject private var coordinator: ConversationCoordinator
+    @ObservedObject private var nova: NovaConversationController
     @ObservedObject private var synthesizer: PollySpeechSynthesizer
     @ObservedObject private var inputDevices: AudioInputDeviceController
 
@@ -12,6 +13,7 @@ struct MenuBarContentView: View {
         self.runtime = runtime
         model = runtime.model
         coordinator = runtime.coordinator
+        nova = runtime.nova
         synthesizer = runtime.synthesizer
         inputDevices = runtime.inputDevices
     }
@@ -20,50 +22,78 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             header
             Divider()
-            taskPicker
+            enginePicker
             inputDevicePicker
-            voiceModelPicker
-            connectionRow
-            voicePicker
-            sessionButton
-            if let approval = coordinator.activeApproval {
-                ApprovalView(
-                    approval: approval,
-                    approve: { Task { await model.answerApproval(.approveOnce) } },
-                    deny: { Task { await model.answerApproval(.decline) } }
-                )
+            if model.selectedConversationEngine == .naturalRealtime {
+                novaVoicePicker
+                novaStatus
+                novaTranscript
+            } else {
+                taskPicker
+                voiceModelPicker
+                connectionRow
+                legacyVoicePicker
+                if let approval = coordinator.activeApproval {
+                    ApprovalView(
+                        approval: approval,
+                        approve: { Task { await model.answerApproval(.approveOnce) } },
+                        deny: { Task { await model.answerApproval(.decline) } }
+                    )
+                }
             }
+            sessionButton
             Divider()
             permissionSection
-            Text("Microphone audio stays on this Mac. In Polly mode, only Codex's reply text goes to AWS. Apple On-Device mode sends no speech output to AWS. Right Option interrupts speech or starts/stops a session.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            privacyNotice
             HStack {
-                Button("Refresh Tasks") {
-                    Task { await model.connectAndRefresh() }
+                if model.selectedConversationEngine == .codexAgent {
+                    Button("Refresh Tasks") {
+                        Task { await model.connectAndRefresh() }
+                    }
+                    .disabled(model.isRefreshing)
                 }
-                .disabled(model.isRefreshing)
                 Spacer()
                 Button("Quit") { runtime.quit() }
             }
         }
         .padding(14)
-        .frame(width: 360)
+        .frame(width: 400)
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: coordinator.state.menuBarSymbol)
+        let natural = model.selectedConversationEngine == .naturalRealtime
+        let symbol = natural ? nova.state.menuBarSymbol : coordinator.state.menuBarSymbol
+        let tint = natural ? nova.state.tint : coordinator.state.tint
+        let status = natural ? nova.state.displayName : coordinator.state.displayName
+        return HStack(spacing: 10) {
+            Image(systemName: symbol)
                 .font(.title2)
-                .foregroundStyle(coordinator.state.tint)
+                .foregroundStyle(tint)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Nyra").font(.headline)
-                Text(coordinator.state.displayName)
+                Text(status)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
+        }
+    }
+
+    private var enginePicker: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("CONVERSATION ENGINE")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Picker("Conversation engine", selection: Binding(
+                get: { model.selectedConversationEngine },
+                set: { model.selectConversationEngine($0) }
+            )) {
+                ForEach(ConversationEngineOption.allCases) { engine in
+                    Text(engine.label).tag(engine)
+                }
+            }
+            .labelsHidden()
+            .disabled(model.isSessionActive)
         }
     }
 
@@ -116,10 +146,10 @@ struct MenuBarContentView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.plain)
-                .disabled(inputDevices.isRefreshing || coordinator.state != .idle)
+                .disabled(inputDevices.isRefreshing || model.isSessionActive)
                 .help("Refresh microphones")
             }
-            .disabled(coordinator.state != .idle)
+            .disabled(model.isSessionActive)
             inputDeviceStatus
         }
     }
@@ -180,24 +210,125 @@ struct MenuBarContentView: View {
         }
     }
 
+    private var novaVoicePicker: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("SONIC VOICE")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Picker("Sonic voice", selection: Binding(
+                get: { model.selectedNovaVoiceID },
+                set: { model.selectNovaVoice(id: $0) }
+            )) {
+                ForEach(NovaSonicVoice.supported) { voice in
+                    Text(voice.label).tag(voice.id)
+                }
+            }
+            .labelsHidden()
+            .disabled(nova.state.isActive)
+        }
+    }
+
+    @ViewBuilder
+    private var novaStatus: some View {
+        if let error = nova.lastError {
+            Label(error, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if nova.state.isActive {
+            Label(
+                nova.voiceProcessingEnabled
+                    ? "macOS Voice Processing active · AEC, noise suppression, AGC"
+                    : "Enabling macOS Voice Processing…",
+                systemImage: nova.voiceProcessingEnabled
+                    ? "checkmark.shield.fill" : "shield.lefthalf.filled"
+            )
+            .font(.caption2)
+            .foregroundStyle(nova.voiceProcessingEnabled ? .green : .secondary)
+        } else {
+            Label(
+                "Full duplex uses macOS Voice Processing for echo control",
+                systemImage: "shield.lefthalf.filled"
+            )
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var novaTranscript: some View {
+        if !nova.transcript.isEmpty
+            || !nova.currentUserTranscript.isEmpty
+            || !nova.currentAssistantTranscript.isEmpty {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("LIVE TRANSCRIPT")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 7) {
+                        ForEach(nova.transcript) { entry in
+                            transcriptRow(role: entry.role, text: entry.text)
+                        }
+                        if !nova.currentUserTranscript.isEmpty,
+                           nova.transcript.last?.text != nova.currentUserTranscript {
+                            transcriptRow(
+                                role: .user,
+                                text: nova.currentUserTranscript
+                            )
+                        }
+                        if !nova.currentAssistantTranscript.isEmpty,
+                           nova.transcript.last?.text != nova.currentAssistantTranscript {
+                            transcriptRow(
+                                role: .assistant,
+                                text: nova.currentAssistantTranscript
+                            )
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 150)
+            }
+        }
+    }
+
+    private func transcriptRow(
+        role: NovaTranscriptRole,
+        text: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(role == .user ? "YOU" : "NYRA")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(role == .user ? Color.secondary : Color.purple)
+            Text(text)
+                .font(.caption)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private var sessionButton: some View {
-        Button {
+        let natural = model.selectedConversationEngine == .naturalRealtime
+        let active = natural ? nova.state.isActive : coordinator.state != .idle
+        let startLabel = natural ? "Start Natural Conversation" : "Start Legacy Codex Session"
+        return Button {
             Task { await model.toggleSession() }
         } label: {
             Label(
-                coordinator.state == .idle ? "Start Voice Session" : "End Voice Session",
-                systemImage: coordinator.state == .idle ? "waveform.circle.fill" : "stop.circle.fill"
+                active ? "End Conversation" : startLabel,
+                systemImage: active ? "stop.circle.fill" : "waveform.circle.fill"
             )
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .disabled(model.selectedTask == nil || model.connectionStatus != .connected)
+        .disabled(!natural && (
+            model.selectedTask == nil || model.connectionStatus != .connected
+        ))
     }
 
-    private var voicePicker: some View {
+    private var legacyVoicePicker: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("VOICE").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            Text("LEGACY OUTPUT VOICE").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
             Picker("Output", selection: Binding(
                 get: { synthesizer.provider },
                 set: { synthesizer.selectProvider($0) }
@@ -275,6 +406,15 @@ struct MenuBarContentView: View {
             }
             .labelsHidden()
         }
+    }
+
+    private var privacyNotice: some View {
+        Text(model.selectedConversationEngine == .naturalRealtime
+            ? "Natural mode continuously sends microphone audio to Nova 2 Sonic in AWS while the session is open. Audio is memory-only in Nyra. macOS Voice Processing provides echo control, but physical speaker/microphone acceptance is still required. Right Option clears speech or ends the session."
+            : "Legacy mode keeps microphone recognition on this Mac, sends finalized text to the selected Codex task, and speaks through Apple or Polly. It is task-aware but slower and half-duplex.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var permissionSection: some View {
@@ -359,6 +499,42 @@ extension ConversationState {
         case .waitingForCodex, .speaking: return .purple
         case .awaitingApproval: return .orange
         case .ending: return .secondary
+        case .failed: return .red
+        }
+    }
+}
+
+extension NovaConversationState {
+    var displayName: String {
+        switch self {
+        case .idle: return "Ready for natural conversation"
+        case .connecting: return "Connecting to Nova 2 Sonic"
+        case .listening: return "Listening · full duplex"
+        case .userSpeaking: return "Listening to you"
+        case .responding: return "Nova is responding"
+        case .speaking: return "Speaking · interrupt anytime"
+        case .ending: return "Ending natural session"
+        case .failed(let message): return "Needs attention: \(message)"
+        }
+    }
+
+    var menuBarSymbol: String {
+        switch self {
+        case .idle: return "waveform.circle"
+        case .connecting, .responding: return "ellipsis.circle.fill"
+        case .listening, .userSpeaking: return "waveform.circle.fill"
+        case .speaking: return "waveform.and.person.filled"
+        case .ending: return "stop.circle"
+        case .failed: return "xmark.circle.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .idle, .ending: return .secondary
+        case .connecting, .responding: return .purple
+        case .listening, .userSpeaking: return .green
+        case .speaking: return .blue
         case .failed: return .red
         }
     }

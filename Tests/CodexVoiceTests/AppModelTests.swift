@@ -91,6 +91,66 @@ import Testing
     #expect(model.tasks.isEmpty)
 }
 
+@MainActor
+@Test func naturalRealtimeAndTiffanyAreDefaults() {
+    let codex = AppModelCodex(tasks: [.first])
+    let model = AppModel(
+        codex: codex,
+        coordinator: makeCoordinator(codex: codex),
+        preferences: MemoryPreferences()
+    )
+
+    #expect(model.selectedConversationEngine == .naturalRealtime)
+    #expect(model.selectedNovaVoiceID == "tiffany")
+}
+
+@MainActor
+@Test func conversationEngineAndSupportedSonicVoicePersist() {
+    let preferences = MemoryPreferences()
+    let codex = AppModelCodex(tasks: [.first])
+    let model = AppModel(
+        codex: codex,
+        coordinator: makeCoordinator(codex: codex),
+        preferences: preferences
+    )
+
+    model.selectConversationEngine(.codexAgent)
+    model.selectNovaVoice(id: "matthew")
+
+    #expect(preferences.values[AppPreferenceKey.conversationEngine]
+        == ConversationEngineOption.codexAgent.rawValue)
+    #expect(preferences.values[AppPreferenceKey.selectedNovaVoiceID] == "matthew")
+
+    let restored = AppModel(
+        codex: codex,
+        coordinator: makeCoordinator(codex: codex),
+        preferences: preferences
+    )
+    #expect(restored.selectedConversationEngine == .codexAgent)
+    #expect(restored.selectedNovaVoiceID == "matthew")
+}
+
+@MainActor
+@Test func legacyCodexEngineStillStartsExistingCoordinator() async throws {
+    let preferences = MemoryPreferences(values: [
+        AppPreferenceKey.conversationEngine: ConversationEngineOption.codexAgent.rawValue,
+    ])
+    let codex = AppModelCodex(tasks: [.first])
+    let coordinator = makeCoordinator(codex: codex)
+    let model = AppModel(
+        codex: codex,
+        coordinator: coordinator,
+        preferences: preferences
+    )
+    await model.connectAndRefresh()
+    await model.toggleSession()
+
+    #expect(model.selectedConversationEngine == .codexAgent)
+    #expect(coordinator.state == .listening)
+    coordinator.endSession()
+    #expect(coordinator.state == .idle)
+}
+
 @Test func rightOptionDecisionTogglesOnlyOnPhysicalDownEdge() {
     var decision = RightOptionHotkeyDecision.evaluate(
         keyCode: 61,

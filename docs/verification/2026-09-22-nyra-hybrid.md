@@ -72,3 +72,80 @@ pending.
   but direct v1/Maple and v2/Cedar probes both returned `realtime conversation
   requires API key auth`. Native ChatGPT Voice may still work through the
   desktop subscription UI when the workspace exposes **Start voice chat**.
+
+## Nova 2 Sonic natural realtime extension
+
+### Verified live prerequisites
+
+- AWS account identity was rechecked in `us-west-2` through short-lived sandbox
+  credentials. `amazon.nova-2-sonic-v1:0` is `ACTIVE`, `ON_DEMAND`, accepts
+  speech, emits speech and text, and reports `AUTHORIZED` with agreement,
+  entitlement, and region availability all `AVAILABLE`.
+- The pinned `aws-sdk-swift` 1.7.71 checkout exposes
+  `AWSBedrockRuntime.invokeModelWithBidirectionalStream` and its generated
+  bidirectional input/output event types.
+- Official Nova 2 documentation was rechecked for ordered input events,
+  continuous approximately 32 ms audio frames, 16 kHz mono 16-bit LPCM input,
+  24 kHz mono 16-bit LPCM output, `HIGH` endpointing sensitivity, server
+  `userSpeechStart`/`INTERRUPTED` barge-in, final transcript stages, and the
+  supported voice IDs.
+
+### Bounded Swift canary
+
+- The standalone Swift canary used the pinned SDK and its deterministic 16 kHz
+  raw speech fixture in 1,024-byte / 32 ms frames.
+- Success required a final recognized user transcript, assistant text, and the
+  first nonempty 24 kHz audio chunk. It then sent `promptEnd` and `sessionEnd`,
+  finished the input continuation, flushed JSON, and explicitly terminated.
+- Final direct-binary run: connection 333.738792 ms, first audio 4,351.052875
+  ms, 3,840 audio bytes observed, process exit 0 in 4.37 seconds, no SIGINT, and
+  no residual canary process.
+- This is first-audio viability evidence only. It is not a claim about complete
+  spoken-turn latency.
+
+### Runtime and UI
+
+- `Natural Realtime · Nova 2 Sonic` is the persisted default conversation
+  engine and Tiffany is the default supported Sonic voice.
+- Natural mode opens one persistent bidirectional stream, keeps one audio
+  content container open, continuously sends selected-microphone frames, plays
+  response chunks as they arrive, assembles user and assistant transcripts,
+  and returns to listening after playback drains.
+- Server `userSpeechStart` and `INTERRUPTED` events immediately clear queued and
+  in-flight playback. Session and playback generations suppress late events and
+  old-turn audio.
+- Capture and playback share one `AVAudioEngine`. Voice Processing is enabled on
+  its input and output nodes, providing Apple's acoustic echo cancellation,
+  noise suppression, and automatic gain control signal path. No claim of zero
+  physical echo is made.
+- `Codex Agent · Task-aware (slower)` remains selectable with the existing task
+  picker, Terra/Luna/Sol choices, visible approvals, and Apple On-Device/AWS
+  Polly output controls.
+
+### Tests, release, and installed state
+
+- The final Xcode 27 gate passed 97 tests in 0.496 seconds, including 16 focused
+  Nova/default/legacy tests, then completed the production build and all Nyra
+  verification checks.
+- Installed bundle: `/Applications/Nyra.app`, identifier `dev.starkpat.nyra`,
+  version 0.6.0, build 7, arm64, minimum macOS 26.0.
+- Installed signature: Developer ID Application Patrick Stark
+  (`P2M5LH6CVA`), hardened runtime flag `0x10000`, Apple timestamp 2026-09-22
+  13:22:55 America/Denver, valid designated requirement.
+- Installed and packaged executable SHA-256 values match:
+  `e444426a332b76fea98bb13214ceb95d04752e8f2f51a66e677bc3db9045a463`.
+- Direct visual inspection verified Natural Realtime, active MX Brio, Tiffany,
+  the echo-control caveat, green Microphone/Hotkey permissions, and Start
+  Natural Conversation. A separate persisted-mode restart verified the exact
+  legacy label, task picker, Terra, Connected to Codex, Apple/Polly controls,
+  and Start Legacy Codex Session. Natural Realtime was restored afterward.
+
+### Deployment and acceptance boundary
+
+- `infra/nyra-nova.yaml` passed CloudFormation `ValidateTemplate`. It grants
+  only `bedrock:InvokeModelWithBidirectionalStream` on the exact regional Nova 2
+  Sonic foundation-model ARN.
+- Infrastructure was not deployed. Operator handoff:
+  `NYRA_SOURCE_PROFILE=<mcs-backed-profile> ./Scripts/deploy-nova-runtime.sh`.
+- Three real open-speaker microphone-to-Nova-to-speaker cycles, including
+  physical echo and interruption assessment, remain intentionally pending.

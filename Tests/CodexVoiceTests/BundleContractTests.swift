@@ -55,7 +55,7 @@ import Testing
     #expect(build.contains("--timestamp"))
 }
 
-@Test func runtimeUsesAppleTranscriptionAndPollyWithoutTranscribe() throws {
+@Test func runtimeIncludesNovaAndPreservesApplePollyLegacyWithoutTranscribe() throws {
     let root = repositoryRoot()
     let package = try String(
         contentsOf: root.appending(path: "Package.swift"),
@@ -68,8 +68,11 @@ import Testing
         encoding: .utf8
     )
 
+    #expect(package.contains("AWSBedrockRuntime"))
     #expect(package.contains("AWSPolly"))
     #expect(package.contains("AWSTranscribe") == false)
+    #expect(runtime.contains("novaSession = NovaSonicSession()"))
+    #expect(runtime.contains("novaAudio = NovaAudioIO("))
     #expect(runtime.contains("capture = AppleSpeechSession("))
     #expect(runtime.contains("inputDevices: inputDevices"))
     #expect(runtime.contains("PollySpeechSynthesizer"))

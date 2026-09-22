@@ -1,0 +1,50 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Least-privilege Nova 2 Sonic runtime role for the Nyra macOS app.
+
+Parameters:
+  TrustedRoleName:
+    Type: String
+    Default: Admin
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]+"
+    Description: Existing same-account role allowed to assume the Nyra Nova runtime role.
+  RuntimeRegion:
+    Type: String
+    Default: us-west-2
+    AllowedValues:
+      - us-west-2
+
+Resources:
+  NyraNovaRuntimeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: NyraNovaRuntime
+      Description: Allows Nyra to invoke only Amazon Nova 2 Sonic bidirectional streaming.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${TrustedRoleName}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: NyraNova2SonicStreaming
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModelWithBidirectionalStream
+                Resource: !Sub arn:${AWS::Partition}:bedrock:${RuntimeRegion}::foundation-model/amazon.nova-2-sonic-v1:0
+      Tags:
+        - Key: Project
+          Value: Nyra
+        - Key: Engine
+          Value: Nova2Sonic
+
+Outputs:
+  RuntimeRoleArn:
+    Description: Role assumed by Nyra through the local MCS-backed AWS profile.
+    Value: !GetAtt NyraNovaRuntimeRole.Arn
+  FoundationModelArn:
+    Description: Exact Nova 2 Sonic foundation model authorized for invocation.
+    Value: !Sub arn:${AWS::Partition}:bedrock:${RuntimeRegion}::foundation-model/amazon.nova-2-sonic-v1:0
