@@ -33,7 +33,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - bedrock:InvokeModelWithBidirectionalStream
+                  - bedrock:InvokeModel
                 Resource: !Sub arn:${AWS::Partition}:bedrock:${RuntimeRegion}::foundation-model/amazon.nova-2-sonic-v1:0
       Tags:
         - Key: Project

@@ -95,7 +95,7 @@ NYRA_SOURCE_PROFILE=my-admin-profile ./Scripts/deploy-nova-runtime.sh
 ```
 
 The Nova role permits only
-`bedrock:InvokeModelWithBidirectionalStream` on the exact regional
+`bedrock:InvokeModel` on the exact regional
 `amazon.nova-2-sonic-v1:0` foundation-model ARN. The script configures the local
 `nyra-nova` profile. Infrastructure is not deployed by the build or installer.
 

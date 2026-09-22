@@ -143,7 +143,7 @@ pending.
 ### Deployment and acceptance boundary
 
 - `infra/nyra-nova.yaml` passed CloudFormation `ValidateTemplate`. It grants
-  only `bedrock:InvokeModelWithBidirectionalStream` on the exact regional Nova 2
+  only `bedrock:InvokeModel` on the exact regional Nova 2
   Sonic foundation-model ARN.
 - Infrastructure was not deployed. Operator handoff:
   `NYRA_SOURCE_PROFILE=<mcs-backed-profile> ./Scripts/deploy-nova-runtime.sh`.
