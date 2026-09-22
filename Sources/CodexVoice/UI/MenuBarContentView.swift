@@ -6,12 +6,14 @@ struct MenuBarContentView: View {
     @ObservedObject private var model: AppModel
     @ObservedObject private var coordinator: ConversationCoordinator
     @ObservedObject private var synthesizer: PollySpeechSynthesizer
+    @ObservedObject private var inputDevices: AudioInputDeviceController
 
     init(runtime: AppRuntime) {
         self.runtime = runtime
         model = runtime.model
         coordinator = runtime.coordinator
         synthesizer = runtime.synthesizer
+        inputDevices = runtime.inputDevices
     }
 
     var body: some View {
@@ -19,6 +21,7 @@ struct MenuBarContentView: View {
             header
             Divider()
             taskPicker
+            inputDevicePicker
             voiceModelPicker
             connectionRow
             voicePicker
@@ -87,6 +90,67 @@ struct MenuBarContentView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
+        }
+    }
+
+    private var inputDevicePicker: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("MICROPHONE")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            HStack {
+                Picker("Microphone", selection: Binding(
+                    get: { inputDevices.pickerSelectionID },
+                    set: { inputDevices.selectPickerID($0) }
+                )) {
+                    Text("System Default")
+                        .tag(AudioInputDeviceController.systemDefaultPickerID)
+                    ForEach(inputDevices.devices) { device in
+                        Text(device.name).tag(device.uid)
+                    }
+                }
+                .labelsHidden()
+                Button {
+                    Task { await inputDevices.refresh() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.plain)
+                .disabled(inputDevices.isRefreshing || coordinator.state != .idle)
+                .help("Refresh microphones")
+            }
+            .disabled(coordinator.state != .idle)
+            inputDeviceStatus
+        }
+    }
+
+    @ViewBuilder
+    private var inputDeviceStatus: some View {
+        switch inputDevices.state {
+        case .loading:
+            ProgressView("Loading microphones…")
+                .controlSize(.small)
+                .font(.caption2)
+        case .active(let name, let systemDefault):
+            Label(
+                systemDefault ? "Active: \(name) · System Default" : "Active: \(name)",
+                systemImage: "mic.fill"
+            )
+            .font(.caption2)
+            .foregroundStyle(.green)
+        case .missing(let savedName, let fallbackName):
+            Label(
+                "\(savedName) unavailable · Using \(fallbackName)",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.caption2)
+            .foregroundStyle(.orange)
+            .lineLimit(2)
+        case .error(let message):
+            Label(message, systemImage: "xmark.circle.fill")
+                .font(.caption2)
+                .foregroundStyle(.red)
+                .lineLimit(2)
         }
     }
 

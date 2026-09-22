@@ -1,9 +1,11 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 
 @MainActor
 final class AppRuntime: ObservableObject {
     let codex: CodexAppServerClient
+    let inputDevices: AudioInputDeviceController
     let capture: AppleSpeechSession
     let synthesizer: PollySpeechSynthesizer
     let coordinator: ConversationCoordinator
@@ -15,8 +17,13 @@ final class AppRuntime: ObservableObject {
     init() {
         let binary = (try? CodexBinaryLocator().resolve())
             ?? URL(filePath: "/Applications/ChatGPT.app/Contents/Resources/codex")
+        let audioEngine = AVAudioEngine()
         codex = CodexAppServerClient(executableURL: binary)
-        capture = AppleSpeechSession()
+        inputDevices = AudioInputDeviceController(audioEngine: audioEngine)
+        capture = AppleSpeechSession(
+            audioEngine: audioEngine,
+            inputDevices: inputDevices
+        )
         let localFallback = SystemSpeechSynthesizer(
             selectedVoiceIdentifier: UserDefaults.standard.string(
                 forKey: AppPreferenceKey.selectedVoiceIdentifier
@@ -46,7 +53,8 @@ final class AppRuntime: ObservableObject {
         Task {
             async let tasks: Void = model.connectAndRefresh()
             async let voices: Void = synthesizer.refreshPollyVoices()
-            _ = await (tasks, voices)
+            async let inputs: Void = inputDevices.refresh()
+            _ = await (tasks, voices, inputs)
         }
     }
 

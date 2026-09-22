@@ -7,8 +7,8 @@ Date: 2026-09-22 (America/Denver)
 - The runtime binary is wired as `AppleSpeechSession` → `CodexAppServerClient`
   → `PollySpeechSynthesizer`.
 - Amazon Transcribe is absent from the Swift package and runtime binary.
-- The full Xcode 27 gate passed 65 tests, including Polly fallback and
-  stop-during-synthesis cancellation coverage.
+- The full Xcode 27 gate passed 70 tests, including five focused CoreAudio
+  input-device tests plus Polly fallback and stop-during-synthesis coverage.
 - A live Swift AWS SDK canary assumed the `nyra-polly` profile and returned its
   first playable Polly Generative PCM chunk in 1820 ms, with 4.361 seconds total.
 - The Terra Codex app-server canary returned the exact `NYRA_PROTOCOL_OK` marker
@@ -17,10 +17,9 @@ Date: 2026-09-22 (America/Denver)
   only the `NyraPollyRuntime` IAM role.
 - The runtime role can describe and synthesize Polly voices in `us-west-2`; a
   negative S3 list probe returned `AccessDenied`.
-- Installed Nyra 0.4.0 build 4 is Developer ID signed with hardened runtime and
-  its executable matches the packaged build byte-for-byte.
-- The installed menu-bar UI rendered `Ready` with Codex connected, Terra,
-  `AWS Polly Generative · Danielle`, and green microphone and hotkey indicators.
+- Installed Nyra 0.4.1 build 5 is Developer ID signed with hardened runtime.
+- The installed menu-bar UI rendered `Ready` with Codex connected, Terra, the
+  unchanged output voice controls, and green microphone and hotkey permissions.
 
 ## Intentionally pending
 
@@ -29,11 +28,23 @@ hear the requested three cycles. No physical voice pass is claimed here.
 
 ## Voice selection extension
 
-Nyra now exposes a persisted Apple On-Device / AWS Polly provider selector plus
+Nyra exposes a persisted Apple On-Device / AWS Polly provider selector plus
 provider-specific voice pickers. The Polly list is loaded from the live
 Generative catalog; Apple voices come from the installed macOS catalog. The
 installed-app visual check is complete; physical voice acceptance remains
 pending.
+
+## Microphone selection extension
+
+- Nyra enumerates only input-capable CoreAudio devices and deduplicates them by
+  stable device UID off the main thread.
+- The selected UID and last-known display name persist across launches. Nyra
+  resolves and validates that UID when activating the shared `AVAudioEngine`.
+- A missing saved device remains selected in preferences while capture falls
+  back to the actual System Default input with a visible warning.
+- The installed picker rendered System Default plus five current physical or
+  virtual inputs. Its green status showed `Active: MacBook Pro Microphone ·
+  System Default`, and its refresh action was visible.
 
 ## Latency extension
 

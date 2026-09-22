@@ -23,6 +23,11 @@ audio can begin before the complete waveform is generated.
 Nyra also lets you choose the Codex conversation model. Terra is the default
 balanced voice model; Luna and Sol remain available for fast or deeper work.
 
+The microphone picker lists System Default plus the Mac's currently available
+physical and virtual CoreAudio inputs. Nyra persists a selected device by its
+stable CoreAudio UID, shows the actual active microphone, and falls back to the
+system default with a visible warning if the saved device disappears.
+
 If **Start voice chat** appears in the ChatGPT desktop task, use that native
 GPT-Live experience for the lowest latency and full-duplex interruption. Nyra's
 direct Codex realtime probe advertises ChatGPT voices including Maple, but that

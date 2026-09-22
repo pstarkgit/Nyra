@@ -62,6 +62,7 @@ final class AppleSpeechSession: SpeechCapturing {
 
     private let audioEngine: AVAudioEngine
     private let ducker: AudioDucking
+    private let inputDevices: AudioInputDeviceControlling?
     private var sessionTask: Task<Void, Never>?
     private var analyzerInput: AsyncStream<AnalyzerInput>.Continuation?
     private var finishSignal: CaptureFinishSignal?
@@ -71,10 +72,12 @@ final class AppleSpeechSession: SpeechCapturing {
 
     init(
         audioEngine: AVAudioEngine = AVAudioEngine(),
-        ducker: AudioDucking = AudioDucker(duckVolume: 1.0)
+        ducker: AudioDucking = AudioDucker(duckVolume: 1.0),
+        inputDevices: AudioInputDeviceControlling? = nil
     ) {
         self.audioEngine = audioEngine
         self.ducker = ducker
+        self.inputDevices = inputDevices
     }
 
     nonisolated static func readiness(
@@ -222,6 +225,7 @@ final class AppleSpeechSession: SpeechCapturing {
         continuation: AsyncStream<AnalyzerInput>.Continuation,
         generation: UInt64
     ) throws {
+        try inputDevices?.prepareForCapture()
         let input = audioEngine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {

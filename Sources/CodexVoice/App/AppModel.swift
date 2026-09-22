@@ -7,6 +7,8 @@ enum AppPreferenceKey {
     static let speechOutputProvider = "speechOutputProvider"
     static let selectedPollyVoiceID = "selectedPollyVoiceID"
     static let selectedVoiceModelID = "selectedVoiceModelID"
+    static let selectedInputDeviceUID = "selectedInputDeviceUID"
+    static let selectedInputDeviceName = "selectedInputDeviceName"
 }
 
 struct VoiceModelOption: Identifiable, Equatable, Sendable {

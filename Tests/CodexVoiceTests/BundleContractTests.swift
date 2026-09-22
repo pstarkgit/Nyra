@@ -70,7 +70,8 @@ import Testing
 
     #expect(package.contains("AWSPolly"))
     #expect(package.contains("AWSTranscribe") == false)
-    #expect(runtime.contains("capture = AppleSpeechSession()"))
+    #expect(runtime.contains("capture = AppleSpeechSession("))
+    #expect(runtime.contains("inputDevices: inputDevices"))
     #expect(runtime.contains("PollySpeechSynthesizer"))
     #expect(runtime.contains("AWSCloudSpeechSession") == false)
 }
