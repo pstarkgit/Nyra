@@ -33,15 +33,22 @@ final class ConversationCoordinator: ObservableObject {
         state == .waitingForCodex && activeTurnID != nil
     }
 
+    var isSpeechPlaying: Bool { speechQueue.isActive }
+
     private let codex: CodexServing
     private let capture: SpeechCapturing
     private let synthesizer: SpeechSynthesizing
     private let formatter: SpokenResponseFormatter
     private let postSpeechDelay: Duration
+    private lazy var speechQueue = SerialSpeechQueue(synthesizer: synthesizer)
     private var eventTask: Task<Void, Never>?
+    private var speechCompletionTask: Task<Void, Never>?
     private var activeTurnID: String?
     private var activeThreadID: String?
     private var responseBuffer = ""
+    private var sentenceAccumulator = SpeakableSentenceAccumulator()
+    private var codexTurnCompleted = false
+    private var speechSuppressedForTurn = false
     private var lastSpokenText = ""
     private var lastSpeechFinishedAt: ContinuousClock.Instant?
     private var generation: UInt64 = 0
@@ -59,6 +66,7 @@ final class ConversationCoordinator: ObservableObject {
         self.formatter = formatter
         self.postSpeechDelay = postSpeechDelay
         bindCaptureCallbacks()
+        bindSpeechQueueCallbacks()
     }
 
     func startSession(task: CodexTask, model: String? = nil) async throws {
@@ -73,6 +81,11 @@ final class ConversationCoordinator: ObservableObject {
         lastError = nil
         responseBuffer = ""
         activeTurnID = nil
+        sentenceAccumulator.reset()
+        codexTurnCompleted = false
+        speechSuppressedForTurn = false
+        speechCompletionTask?.cancel()
+        speechCompletionTask = nil
         lastSpokenText = ""
         lastSpeechFinishedAt = nil
         generation &+= 1
@@ -85,7 +98,8 @@ final class ConversationCoordinator: ObservableObject {
         guard state != .idle else { return }
         generation &+= 1
         capture.cancel()
-        synthesizer.stop()
+        cancelSpeechForTurn()
+        codexTurnCompleted = false
         activeApproval = nil
         activeTurnID = nil
         activeThreadID = nil
@@ -117,8 +131,11 @@ final class ConversationCoordinator: ObservableObject {
     }
 
     func interruptPlayback() {
-        guard state == .speaking else { return }
-        synthesizer.stop()
+        guard speechQueue.isActive || state == .speaking else { return }
+        cancelSpeechForTurn()
+        if codexTurnCompleted {
+            finishSpeechIfReady(skipDelay: true)
+        }
     }
 
     func cancelActiveTurn() async throws {
@@ -128,6 +145,7 @@ final class ConversationCoordinator: ObservableObject {
         guard let activeTurnID else {
             throw ConversationCoordinatorError.noActiveTurn
         }
+        cancelSpeechForTurn()
         try await codex.interruptTurn(threadId: activeThreadID, turnId: activeTurnID)
     }
 
@@ -158,6 +176,24 @@ final class ConversationCoordinator: ObservableObject {
         }
         capture.onError = { [weak self] message in
             self?.fail(message)
+        }
+    }
+
+    private func bindSpeechQueueCallbacks() {
+        speechQueue.onChunkStarted = { [weak self] text in
+            guard let self else { return }
+            if self.lastSpokenText.isEmpty {
+                self.lastSpokenText = text
+            } else {
+                self.lastSpokenText += " " + text
+            }
+        }
+        speechQueue.onDrained = { [weak self] in
+            guard let self else { return }
+            if !self.lastSpokenText.isEmpty {
+                self.lastSpeechFinishedAt = ContinuousClock.now
+            }
+            self.finishSpeechIfReady()
         }
     }
 
@@ -202,6 +238,12 @@ final class ConversationCoordinator: ObservableObject {
             } else {
                 responseBuffer = ""
                 latestResponse = ""
+                sentenceAccumulator.reset()
+                codexTurnCompleted = false
+                speechSuppressedForTurn = false
+                speechCompletionTask?.cancel()
+                speechCompletionTask = nil
+                lastSpokenText = ""
                 let prompt = """
                 [Voice session: answer immediately in natural conversational prose, usually one or two short sentences. Lead with the direct answer. Do not narrate internal reasoning. Put code and technical detail in files or the task transcript.]
 
@@ -223,8 +265,12 @@ final class ConversationCoordinator: ObservableObject {
         case .endSession:
             endSession()
         case .stopSpeaking:
-            synthesizer.stop()
-            discardAndResumeListening()
+            cancelSpeechForTurn()
+            if state == .transcribing, activeTurnID != nil {
+                try? transition(.transcriptionFinalized)
+            } else {
+                discardAndResumeListening()
+            }
         case .cancelTurn:
             do {
                 try transition(.transcriptionFinalized)
@@ -241,6 +287,10 @@ final class ConversationCoordinator: ObservableObject {
         case .agentDelta(let threadID, let turnID, let text):
             guard threadID == activeThreadID, turnID == activeTurnID else { return }
             responseBuffer += text
+            guard !speechSuppressedForTurn else { return }
+            for sentence in sentenceAccumulator.append(text) {
+                enqueueSpeech(sentence)
+            }
         case .approvalRequested(let approval):
             guard state == .waitingForCodex else { return }
             activeApproval = approval
@@ -262,6 +312,8 @@ final class ConversationCoordinator: ObservableObject {
         }
         activeTurnID = nil
         if status != "completed" {
+            cancelSpeechForTurn()
+            codexTurnCompleted = false
             responseBuffer = ""
             latestResponse = ""
             if (try? transition(.turnCompleted)) != nil {
@@ -273,21 +325,53 @@ final class ConversationCoordinator: ObservableObject {
 
         latestResponse = responseBuffer
         responseBuffer = ""
+        if !speechSuppressedForTurn, let fragment = sentenceAccumulator.flush() {
+            enqueueSpeech(fragment)
+        } else {
+            sentenceAccumulator.reset()
+        }
+        codexTurnCompleted = true
         guard (try? transition(.turnCompleted)) != nil else { return }
-        let spoken = formatter.format(latestResponse).text
-        let currentGeneration = generation
+        finishSpeechIfReady()
+    }
+
+    private func enqueueSpeech(_ text: String) {
+        let spoken = formatter.format(text).text
         if !spoken.isEmpty {
-            await synthesizer.speak(spoken)
-            lastSpokenText = spoken
-            lastSpeechFinishedAt = ContinuousClock.now
+            speechQueue.enqueue(spoken)
         }
-        guard currentGeneration == generation, state == .speaking else { return }
-        if postSpeechDelay > .zero {
-            try? await Task.sleep(for: postSpeechDelay)
+    }
+
+    private func cancelSpeechForTurn() {
+        speechSuppressedForTurn = true
+        sentenceAccumulator.reset()
+        speechCompletionTask?.cancel()
+        speechCompletionTask = nil
+        speechQueue.cancel()
+    }
+
+    private func finishSpeechIfReady(skipDelay: Bool = false) {
+        guard codexTurnCompleted,
+              state == .speaking,
+              speechQueue.isDrained,
+              speechCompletionTask == nil else { return }
+        let currentGeneration = generation
+        speechCompletionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.speechCompletionTask = nil }
+            if !skipDelay, self.postSpeechDelay > .zero {
+                try? await Task.sleep(for: self.postSpeechDelay)
+            }
+            guard !Task.isCancelled,
+                  currentGeneration == self.generation,
+                  self.codexTurnCompleted,
+                  self.state == .speaking,
+                  self.speechQueue.isDrained else { return }
+            self.codexTurnCompleted = false
+            self.speechSuppressedForTurn = false
+            try? self.transition(.speechFinished)
+            try? self.startCapture()
         }
-        guard currentGeneration == generation, state == .speaking else { return }
-        try? transition(.speechFinished)
-        try? startCapture()
     }
 
     private func discardAndResumeListening() {
@@ -330,6 +414,12 @@ final class ConversationCoordinator: ObservableObject {
 
     private func fail(_ message: String) {
         capture.cancel()
+        cancelSpeechForTurn()
+        codexTurnCompleted = false
+        activeTurnID = nil
+        activeApproval = nil
+        responseBuffer = ""
+        latestResponse = ""
         lastError = message
         if let next = try? ConversationTransition.reduce(
             state: state,

@@ -28,6 +28,12 @@ physical and virtual CoreAudio inputs. Nyra persists a selected device by its
 stable CoreAudio UID, shows the actual active microphone, and falls back to the
 system default with a visible warning if the saved device disappears.
 
+Nyra speaks each complete sentence as Codex streams it, while later response
+text continues arriving. Playback stays ordered, the full response remains in
+the transcript, and the final fragment is spoken after turn completion. This
+reduces multi-sentence response latency, but cannot remove Codex TTFT from a
+one-sentence reply when its first sentence arrives only near completion.
+
 If **Start voice chat** appears in the ChatGPT desktop task, use that native
 GPT-Live experience for the lowest latency and full-duplex interruption. Nyra's
 direct Codex realtime probe advertises ChatGPT voices including Maple, but that

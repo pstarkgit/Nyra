@@ -16,6 +16,32 @@ import Testing
     #expect(devices.map(\.name) == ["Loopback", "MacBook Microphone", "Studio Mic"])
 }
 
+
+@Test func transientDefaultAggregateDevicesAreFiltered() {
+    let devices = CoreAudioInputDeviceCatalog.normalized([
+        inputDevice(
+            uid: "CADefaultDeviceAggregate-72648-0",
+            name: "Process Aggregate",
+            id: 90
+        ),
+        inputDevice(
+            uid: "other-aggregate",
+            name: "CADefaultDeviceAggregate-72648-1",
+            id: 91
+        ),
+        inputDevice(uid: "built-in", name: "MacBook Pro Microphone", id: 1),
+        inputDevice(uid: "camera", name: "MX Brio", id: 2),
+        inputDevice(uid: "virtual", name: "ZoomAudioDevice", id: 3),
+        inputDevice(uid: "phone", name: "iPhone Microphone", id: 4),
+    ])
+
+    #expect(devices.map(\.name) == [
+        "iPhone Microphone",
+        "MacBook Pro Microphone",
+        "MX Brio",
+        "ZoomAudioDevice",
+    ])
+}
 @MainActor
 @Test func selectedDevicePersistsAndIsApplied() async throws {
     let builtIn = inputDevice(uid: "built-in", name: "MacBook Microphone", id: 1)

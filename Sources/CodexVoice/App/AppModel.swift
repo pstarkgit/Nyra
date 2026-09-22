@@ -122,6 +122,8 @@ final class AppModel: ObservableObject {
             await toggleSession()
         case .speaking:
             coordinator.interruptPlayback()
+        case .waitingForCodex where coordinator.isSpeechPlaying:
+            coordinator.interruptPlayback()
         case .waitingForCodex where coordinator.canSteer:
             try? coordinator.beginListeningForSteer()
         case .listening, .transcribing, .failed:

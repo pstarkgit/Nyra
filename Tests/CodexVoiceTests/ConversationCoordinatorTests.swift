@@ -58,6 +58,168 @@ import Testing
 }
 
 @MainActor
+@Test func sentenceSpeechStartsBeforeCompletionAndFlushesFinalFragmentInOrder() async throws {
+    let harness = CoordinatorHarness()
+    try await harness.coordinator.startSession(task: .fixture)
+    harness.capture.emitSpeechStarted()
+    harness.capture.emitFinal("Explain the result")
+    try await waitUntil { harness.coordinator.canSteer }
+
+    await harness.codex.emit(.agentDelta(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        text: "First sentence. Final"
+    ))
+    try await waitUntil { harness.synthesizer.spoken == ["First sentence."] }
+
+    #expect(harness.coordinator.state == .waitingForCodex)
+    #expect(harness.coordinator.latestResponse.isEmpty)
+    #expect(harness.capture.startCalls == 1)
+
+    await harness.codex.emit(.agentDelta(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        text: " fragment"
+    ))
+    await harness.codex.emit(.turnCompleted(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        status: "completed"
+    ))
+    try await waitUntil {
+        harness.coordinator.latestResponse == "First sentence. Final fragment"
+    }
+
+    harness.synthesizer.finish()
+    try await waitUntil {
+        harness.synthesizer.spoken == ["First sentence.", "Final fragment"]
+    }
+    #expect(harness.coordinator.state == .speaking)
+    #expect(harness.capture.startCalls == 1)
+
+    harness.synthesizer.finish()
+    try await waitUntil { harness.coordinator.state == .listening }
+
+    #expect(harness.coordinator.latestResponse == "First sentence. Final fragment")
+    #expect(harness.capture.startCalls == 2)
+}
+
+@MainActor
+@Test func earlySpeechInterruptionCancelsQueueAndPreservesTranscript() async throws {
+    let harness = CoordinatorHarness()
+    try await harness.coordinator.startSession(task: .fixture)
+    harness.capture.emitSpeechStarted()
+    harness.capture.emitFinal("Explain the result")
+    try await waitUntil { harness.coordinator.canSteer }
+
+    await harness.codex.emit(.agentDelta(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        text: "First sentence. Queued sentence."
+    ))
+    try await waitUntil { harness.synthesizer.spoken == ["First sentence."] }
+
+    harness.coordinator.interruptPlayback()
+    await harness.codex.emit(.agentDelta(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        text: " Later sentence."
+    ))
+    await harness.codex.emit(.turnCompleted(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        status: "completed"
+    ))
+    try await waitUntil { harness.coordinator.state == .listening }
+
+    #expect(harness.synthesizer.spoken == ["First sentence."])
+    #expect(harness.synthesizer.stopCalls == 1)
+    #expect(harness.coordinator.latestResponse
+        == "First sentence. Queued sentence. Later sentence.")
+    #expect(harness.capture.startCalls == 2)
+}
+
+@MainActor
+@Test func explicitTurnCancellationStopsStreamingSpeech() async throws {
+    let harness = CoordinatorHarness()
+    try await harness.coordinator.startSession(task: .fixture)
+    harness.capture.emitSpeechStarted()
+    harness.capture.emitFinal("Start work")
+    try await waitUntil { harness.coordinator.canSteer }
+
+    await harness.codex.emit(.agentDelta(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        text: "Started sentence. Queued sentence."
+    ))
+    try await waitUntil { harness.synthesizer.spoken == ["Started sentence."] }
+
+    try await harness.coordinator.cancelActiveTurn()
+    await harness.codex.emit(.turnCompleted(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        status: "cancelled"
+    ))
+    try await waitUntil { harness.coordinator.state == .listening }
+
+    #expect(await harness.codex.interruptedTurns == ["turn-1"])
+    #expect(harness.synthesizer.spoken == ["Started sentence."])
+    #expect(harness.synthesizer.stopCalls == 1)
+    #expect(harness.coordinator.latestResponse.isEmpty)
+}
+
+@MainActor
+@Test func sessionEndCancelsStreamingSpeechWithoutRestartingCapture() async throws {
+    let harness = CoordinatorHarness()
+    try await harness.coordinator.startSession(task: .fixture)
+    harness.capture.emitSpeechStarted()
+    harness.capture.emitFinal("Start work")
+    try await waitUntil { harness.coordinator.canSteer }
+
+    await harness.codex.emit(.agentDelta(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        text: "Speaking now. Never play this."
+    ))
+    try await waitUntil { harness.synthesizer.spoken == ["Speaking now."] }
+
+    harness.coordinator.endSession()
+    try await waitUntil { harness.coordinator.state == .idle }
+
+    #expect(harness.synthesizer.spoken == ["Speaking now."])
+    #expect(harness.synthesizer.stopCalls == 1)
+    #expect(harness.capture.startCalls == 1)
+    #expect(harness.coordinator.selectedTask == nil)
+}
+
+@MainActor
+@Test func failedTurnCancelsEarlySpeechAndReturnsToListening() async throws {
+    let harness = CoordinatorHarness()
+    try await harness.coordinator.startSession(task: .fixture)
+    harness.capture.emitSpeechStarted()
+    harness.capture.emitFinal("Start work")
+    try await waitUntil { harness.coordinator.canSteer }
+
+    await harness.codex.emit(.agentDelta(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        text: "Partial result. Must not play."
+    ))
+    try await waitUntil { harness.synthesizer.spoken == ["Partial result."] }
+    await harness.codex.emit(.turnCompleted(
+        threadID: "thread-1",
+        turnID: "turn-1",
+        status: "failed"
+    ))
+    try await waitUntil { harness.coordinator.state == .listening }
+
+    #expect(harness.synthesizer.spoken == ["Partial result."])
+    #expect(harness.synthesizer.stopCalls == 1)
+    #expect(harness.coordinator.latestResponse.isEmpty)
+    #expect(harness.capture.startCalls == 2)
+}
+
+@MainActor
 @Test func recentSpokenReplyIsDiscardedAsSpeakerEcho() async throws {
     let harness = CoordinatorHarness()
     try await harness.coordinator.startSession(task: .fixture)
@@ -198,6 +360,7 @@ private actor FakeCodexServer: CodexServing {
     var startedTexts: [String] = []
     var steeredTexts: [String] = []
     var approvalDecisions: [ApprovalDecision] = []
+    var interruptedTurns: [String] = []
 
     init() {
         var continuation: AsyncStream<CodexServerEvent>.Continuation!
@@ -217,7 +380,9 @@ private actor FakeCodexServer: CodexServing {
     func steerTurn(threadId: String, text: String) async throws {
         steeredTexts.append(text)
     }
-    func interruptTurn(threadId: String, turnId: String) async throws {}
+    func interruptTurn(threadId: String, turnId: String) async throws {
+        interruptedTurns.append(turnId)
+    }
     func answerApproval(id: RequestID, decision: ApprovalDecision) async throws {
         approvalDecisions.append(decision)
     }
@@ -257,6 +422,7 @@ private final class FakeSpeechCapture: SpeechCapturing {
 private final class FakeSpeechSynthesizer: SpeechSynthesizing {
     private(set) var isSpeaking = false
     var spoken: [String] = []
+    private(set) var stopCalls = 0
     private var continuation: CheckedContinuation<Void, Never>?
 
     func speak(_ text: String) async {
@@ -264,7 +430,10 @@ private final class FakeSpeechSynthesizer: SpeechSynthesizing {
         spoken.append(text)
         await withCheckedContinuation { continuation = $0 }
     }
-    func stop() { finish() }
+    func stop() {
+        stopCalls += 1
+        finish()
+    }
     func finish() {
         isSpeaking = false
         let continuation = continuation

@@ -48,7 +48,7 @@ def main():
                 "clientInfo": {
                     "name": "nyra_realtime_smoke",
                     "title": "Nyra Realtime Smoke",
-                    "version": "0.4.0",
+                    "version": "0.5.0",
                 },
                 "capabilities": {"experimentalApi": True},
             },

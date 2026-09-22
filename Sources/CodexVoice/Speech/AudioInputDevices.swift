@@ -88,7 +88,11 @@ struct CoreAudioInputDeviceCatalog: AudioInputDeviceCataloging {
         for device in devices {
             let uid = device.uid.trimmingCharacters(in: .whitespacesAndNewlines)
             let name = device.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !uid.isEmpty, !name.isEmpty, unique[uid] == nil else { continue }
+            guard !uid.isEmpty,
+                  !name.isEmpty,
+                  !uid.hasPrefix("CADefaultDeviceAggregate-"),
+                  !name.hasPrefix("CADefaultDeviceAggregate-"),
+                  unique[uid] == nil else { continue }
             unique[uid] = AudioInputDevice(
                 uid: uid,
                 name: name,

@@ -109,7 +109,7 @@ actor CodexAppServerClient: CodexServing {
                     "clientInfo": .object([
                         "name": .string("nyra"),
                         "title": .string("Nyra"),
-                        "version": .string("0.4.0"),
+                        "version": .string("0.5.0"),
                     ]),
                 ]
             )

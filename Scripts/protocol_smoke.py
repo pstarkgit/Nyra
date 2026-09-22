@@ -91,7 +91,7 @@ def main():
                 "clientInfo": {
                     "name": "nyra_smoke",
                     "title": "Nyra Smoke",
-                    "version": "0.4.0",
+                    "version": "0.5.0",
                 },
                 "capabilities": {"experimentalApi": True},
             },

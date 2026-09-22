@@ -7,8 +7,8 @@ Date: 2026-09-22 (America/Denver)
 - The runtime binary is wired as `AppleSpeechSession` → `CodexAppServerClient`
   → `PollySpeechSynthesizer`.
 - Amazon Transcribe is absent from the Swift package and runtime binary.
-- The full Xcode 27 gate passed 70 tests, including five focused CoreAudio
-  input-device tests plus Polly fallback and stop-during-synthesis coverage.
+- The full Xcode 27 gate passed 81 tests, including focused CoreAudio input,
+  sentence accumulation, serial playback, cancellation, and reset coverage.
 - A live Swift AWS SDK canary assumed the `nyra-polly` profile and returned its
   first playable Polly Generative PCM chunk in 1820 ms, with 4.361 seconds total.
 - The Terra Codex app-server canary returned the exact `NYRA_PROTOCOL_OK` marker
@@ -17,9 +17,10 @@ Date: 2026-09-22 (America/Denver)
   only the `NyraPollyRuntime` IAM role.
 - The runtime role can describe and synthesize Polly voices in `us-west-2`; a
   negative S3 list probe returned `AccessDenied`.
-- Installed Nyra 0.4.1 build 5 is Developer ID signed with hardened runtime.
-- The installed menu-bar UI rendered `Ready` with Codex connected, Terra, the
-  unchanged output voice controls, and green microphone and hotkey permissions.
+- Installed Nyra 0.5.0 build 6 is Developer ID signed with hardened runtime and
+  its executable matches the packaged build byte-for-byte.
+- Direct visual inspection showed `Ready`, Codex connected, Terra, System
+  Default microphone active, unchanged output controls, and green permissions.
 
 ## Intentionally pending
 
@@ -38,21 +39,33 @@ pending.
 
 - Nyra enumerates only input-capable CoreAudio devices and deduplicates them by
   stable device UID off the main thread.
+- Transient internal names or UIDs beginning `CADefaultDeviceAggregate-` are
+  filtered while legitimate physical and virtual inputs remain.
 - The selected UID and last-known display name persist across launches. Nyra
   resolves and validates that UID when activating the shared `AVAudioEngine`.
 - A missing saved device remains selected in preferences while capture falls
   back to the actual System Default input with a visible warning.
-- The installed picker rendered System Default plus five current physical or
-  virtual inputs. Its green status showed `Active: MacBook Pro Microphone ·
-  System Default`, and its refresh action was visible.
+- The installed picker rendered System Default with MacBook Pro Microphone
+  active; the previous transient process aggregate is excluded by normalization.
 
 ## Latency extension
 
+- Complete speakable sentences are extracted across Codex delta boundaries and
+  queued before `turnCompleted`; the final fragment flushes at completion.
+- The serial speech queue is nonblocking for delta receipt, preserves playback
+  order, and prevents listening reset until Codex completion plus speech drain.
+- Interruption, explicit cancellation, failed/cancelled status, runtime failure,
+  and session end clear queued and in-flight speech without duplicate playback.
+- The full untruncated Codex response remains available as the UI transcript.
+- This materially advances first audio for multi-sentence replies when sentence
+  one completes before the turn. For one-sentence replies whose only sentence
+  arrives near completion, the measured 6812 ms Codex TTFT still dominates and
+  this change cannot materially reduce that pre-token latency.
 - Polly bidirectional streaming returned its first live PCM chunk in 1820 ms
   and completed in 4.361 seconds, compared with 3.62 seconds for the prior
   whole-file CLI request.
-- Nyra now defaults to Terra for voice conversations while retaining Luna and
-  Sol as selectable models.
+- Nyra defaults to Terra for voice conversations while retaining Luna and Sol
+  as selectable models.
 - End-of-speech trailing silence is 0.60 seconds and the post-playback reset is
   0.60 seconds.
 - The installed Codex host advertises native realtime voice support and Maple,
