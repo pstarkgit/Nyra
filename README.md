@@ -1,65 +1,75 @@
-# Codex Voice
+# Nyra
 
-Codex Voice is a native macOS menu-bar companion for hands-free conversation
-with local Codex tasks. It captures and recognizes speech on the Mac, sends only
-the finalized text through Codex's documented app-server protocol, speaks the
-completed response with an Apple system voice, and automatically listens again.
+Nyra is a native macOS menu-bar companion for hands-free conversation with
+local Codex tasks. It keeps microphone audio and speech recognition on the Mac,
+sends finalized text to Codex through `codex app-server`, and speaks Codex's
+completed response with Amazon Polly Generative text-to-speech.
+
+```text
+microphone → Apple SpeechAnalyzer → Codex → Polly Generative → speakers
+```
+
+Amazon Transcribe is intentionally not part of this architecture. Polly receives
+only Codex's response text; it never receives microphone audio or partial
+transcripts. If Polly is unavailable, Nyra speaks through the installed local
+Apple voice instead of silently dropping the response.
 
 ## Conversation flow
 
-1. Launch **Codex Voice** and choose a task from the menu-bar task picker.
+1. Launch **Nyra** and choose a Codex task from the menu-bar picker.
 2. Click **Start Voice Session** or press **Right Option**.
 3. Speak naturally. Trailing silence ends the utterance.
 4. Codex works in the selected persisted task.
-5. After explicit turn completion, Codex Voice speaks the result and resumes
-   listening.
+5. Polly speaks the result, then Nyra returns to listening.
 
-Playback is currently half-duplex. Press Right Option while Codex is speaking to
-stop playback. During an active Codex turn, Right Option opens a steering
-utterance. Command and file approvals always require a visible click.
+Playback is half-duplex. Right Option interrupts speech. Command and file
+approvals always require a visible click.
 
-## Privacy boundary
+## Privacy and access boundary
 
-- Apple recognition is forced to on-device mode.
+- Apple recognition is forced to the on-device `SpeechAnalyzer` path.
 - Audio and partial transcripts are memory-only.
 - Codex receives finalized text, never microphone audio.
-- Codex Voice delegates authentication to the installed Codex binary and does
-  not read credentials, browser sessions, cookies, or tokens.
+- Polly receives response text only.
+- Nyra uses the `nyra-polly` AWS profile, which assumes the least-privilege
+  `NyraPollyRuntime` role through an existing MCS-backed source profile.
+- Nyra never reads Codex credentials, browser sessions, cookies, or tokens.
 
 ## Requirements
 
 - macOS 26 or later.
-- Codex Desktop installed in `/Applications/ChatGPT.app`, or a supported `codex`
-  executable on the local path.
-- Microphone and Accessibility permission. Accessibility
-  is used only for the global Right Option hotkey, not UI automation.
+- Codex Desktop or a supported local `codex` executable.
+- Microphone permission; Accessibility permission is needed only for the global
+  Right Option hotkey.
+- An MCS-backed AWS source profile with permission to deploy and assume the
+  Nyra runtime role.
 
-## Build and run
+## Provision Polly access
+
+The CloudFormation stack creates only one IAM role and has no standing compute
+cost. Set the source profile explicitly:
+
+```bash
+NYRA_SOURCE_PROFILE=my-admin-profile ./Scripts/deploy-polly-runtime.sh
+```
+
+The script creates the local `nyra-polly` role profile. No account ID or
+credential is stored in this repository.
+
+## Build, verify, and install
 
 ```bash
 ./test.sh
-./script/build_and_run.sh --verify
-```
-
-The Codex desktop Run action is configured in
-`.codex/environments/environment.toml` and invokes the same run script.
-
-## Install
-
-```bash
 ./install.sh
 ```
 
-The installer builds and verifies an ad-hoc signed bundle, refuses to replace an
-unrecognized application, moves a previous owned build to Trash, installs
-`/Applications/Codex Voice.app`, and launches it.
+The installer signs and installs `/Applications/Nyra.app` alongside any existing
+Codex Voice installation.
 
 ## Troubleshooting
 
-- **No tasks:** open Codex Desktop once, then choose **Refresh Tasks**.
-- **No listening:** use **Grant or Refresh Permissions** and relaunch after macOS
-  records the grant.
-- **Hotkey unavailable:** grant Accessibility and press the permission button
-  again so the event tap is re-created.
-- **No spoken result:** confirm an English Apple system voice is installed. The
-  complete response remains in Codex Desktop even if synthesis fails.
+- **No tasks:** Open Codex Desktop once, then choose **Refresh Tasks**.
+- **No listening:** Use **Grant or Refresh Permissions** and relaunch.
+- **Hotkey unavailable:** Grant Accessibility; the menu button still works.
+- **Polly fallback shown:** Refresh the MCS/ADA source profile and verify
+  `aws sts get-caller-identity --profile nyra-polly`.

@@ -3,19 +3,31 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 CLT_ROOT="/Library/Developer/CommandLineTools"
-APP_BUNDLE="$ROOT_DIR/.build/app/Codex Voice.app"
+XCODE_ROOT="/Applications/Xcode.app/Contents/Developer"
+APP_BUNDLE="$ROOT_DIR/.build/app/Nyra.app"
 
 cd "$ROOT_DIR"
-swift test \
+if test -d "$XCODE_ROOT"; then
+  export DEVELOPER_DIR="$XCODE_ROOT"
+  SWIFT=(/usr/bin/xcrun swift)
+  TEST_TOOLCHAIN_ARGS=(--scratch-path "$ROOT_DIR/.build/tests-xcode")
+else
+  SWIFT=(/usr/bin/swift)
+  TEST_TOOLCHAIN_ARGS=(
+    -Xswiftc -F -Xswiftc "$CLT_ROOT/Library/Developer/Frameworks"
+    -Xlinker -F -Xlinker "$CLT_ROOT/Library/Developer/Frameworks"
+    -Xlinker -rpath -Xlinker "$CLT_ROOT/Library/Developer/Frameworks"
+    -Xlinker -rpath -Xlinker "$CLT_ROOT/Library/Developer/usr/lib"
+  )
+fi
+
+"${SWIFT[@]}" test \
   --disable-sandbox \
-  -Xswiftc -F -Xswiftc "$CLT_ROOT/Library/Developer/Frameworks" \
-  -Xlinker -F -Xlinker "$CLT_ROOT/Library/Developer/Frameworks" \
-  -Xlinker -rpath -Xlinker "$CLT_ROOT/Library/Developer/Frameworks" \
-  -Xlinker -rpath -Xlinker "$CLT_ROOT/Library/Developer/usr/lib" \
+  "${TEST_TOOLCHAIN_ARGS[@]}" \
   "$@"
 
 if test "$#" -eq 0; then
-  swift build -c release --product CodexVoice
+  "${SWIFT[@]}" build -c release --product Nyra
   "$ROOT_DIR/Scripts/build-app.sh" >/dev/null
   /usr/bin/plutil -lint "$APP_BUNDLE/Contents/Info.plist" >/dev/null
   /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
@@ -32,5 +44,5 @@ if test "$#" -eq 0; then
     echo "process check failed: fake app-server is still running" >&2
     exit 1
   fi
-  echo "Codex Voice verification passed"
+  echo "Nyra verification passed"
 fi

@@ -2,9 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-APP_NAME="Codex Voice"
-EXECUTABLE_NAME="CodexVoice"
-BUNDLE_ID="dev.starkpat.codexvoice"
+XCODE_ROOT="/Applications/Xcode.app/Contents/Developer"
+APP_NAME="Nyra"
+EXECUTABLE_NAME="Nyra"
+BUNDLE_ID="dev.starkpat.nyra"
 DEVELOPER_ID="Developer ID Application: Patrick Stark (P2M5LH6CVA)"
 OUTPUT_ROOT="$ROOT_DIR/.build/app"
 APP_BUNDLE="$OUTPUT_ROOT/$APP_NAME.app"
@@ -12,14 +13,19 @@ CONTENTS="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES_DIR="$CONTENTS/Resources"
 
+if test -d "$XCODE_ROOT"; then
+  export DEVELOPER_DIR="$XCODE_ROOT"
+fi
+SWIFT=(/usr/bin/xcrun swift)
+
 case "$APP_BUNDLE" in
   "$ROOT_DIR"/.build/app/*) ;;
   *) echo "unsafe app output path: $APP_BUNDLE" >&2; exit 1 ;;
 esac
 
 cd "$ROOT_DIR"
-swift build -c release --product "$EXECUTABLE_NAME"
-BIN_DIR="$(swift build -c release --show-bin-path)"
+"${SWIFT[@]}" build -c release --product "$EXECUTABLE_NAME"
+BIN_DIR="$("${SWIFT[@]}" build -c release --show-bin-path)"
 BUILD_BINARY="$BIN_DIR/$EXECUTABLE_NAME"
 test -f "$BUILD_BINARY" -a -x "$BUILD_BINARY"
 
@@ -34,14 +40,22 @@ test -f "$BUILD_BINARY" -a -x "$BUILD_BINARY"
 actual_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$CONTENTS/Info.plist")"
 test "$actual_id" = "$BUNDLE_ID"
 
-SIGN_IDENTITY="-"
-if /usr/bin/security find-identity -v -p codesigning \
-    | /usr/bin/grep -Fq "\"$DEVELOPER_ID\""; then
-  SIGN_IDENTITY="$DEVELOPER_ID"
-elif test "${CODEX_VOICE_REQUIRE_DEVELOPER_ID:-0}" = "1"; then
+SIGN_IDENTITY="${NYRA_SIGN_IDENTITY:-}"
+if test -z "$SIGN_IDENTITY"; then
+  SIGN_IDENTITY="$(
+    /usr/bin/security find-identity -v -p codesigning \
+      | /usr/bin/grep -F "\"$DEVELOPER_ID\"" \
+      | /usr/bin/head -n 1 \
+      | /usr/bin/awk '{print $2}' \
+      || true
+  )"
+fi
+if test -z "$SIGN_IDENTITY" \
+    && test "${NYRA_REQUIRE_DEVELOPER_ID:-0}" = "1"; then
   echo "required signing identity is unavailable: $DEVELOPER_ID" >&2
   exit 1
 fi
+test -n "$SIGN_IDENTITY" || SIGN_IDENTITY="-"
 
 if test "$SIGN_IDENTITY" = "-"; then
   /usr/bin/codesign --force --sign - \

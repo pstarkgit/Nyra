@@ -24,7 +24,7 @@ enum CodexAppServerClientError: Error, Equatable, Sendable {
 
 actor CodexAppServerClient: CodexServing {
     private static let logger = Logger(
-        subsystem: "dev.starkpat.codexvoice",
+        subsystem: "dev.starkpat.nyra",
         category: "app-server"
     )
     private let executableURL: URL
@@ -107,9 +107,9 @@ actor CodexAppServerClient: CodexServing {
                 method: "initialize",
                 params: [
                     "clientInfo": .object([
-                        "name": .string("codex_voice"),
-                        "title": .string("Codex Voice"),
-                        "version": .string("0.1.0"),
+                        "name": .string("nyra"),
+                        "title": .string("Nyra"),
+                        "version": .string("0.2.0"),
                     ]),
                 ]
             )

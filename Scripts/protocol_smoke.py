@@ -73,8 +73,8 @@ def main():
             "id": 1,
             "method": "initialize",
             "params": {"clientInfo": {
-                "name": "codex_voice_smoke",
-                "title": "Codex Voice Smoke",
+                "name": "nyra_smoke",
+                "title": "Nyra Smoke",
                 "version": "0.1.0",
             }},
         })
@@ -110,7 +110,7 @@ def main():
                 "threadId": thread_id,
                 "input": [{
                     "type": "text",
-                    "text": "Reply exactly CODEX_VOICE_PROTOCOL_OK. Do not call tools.",
+                    "text": "Reply exactly NYRA_PROTOCOL_OK. Do not call tools.",
                 }],
             },
         })
@@ -132,7 +132,7 @@ def main():
                 turn_id = turn_id or turn.get("id")
                 completed_status = turn.get("status")
 
-        marker = "CODEX_VOICE_PROTOCOL_OK" in response_text
+        marker = "NYRA_PROTOCOL_OK" in response_text
         print(json.dumps({
             "threadId": thread_id,
             "turnId": turn_id,

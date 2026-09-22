@@ -3,11 +3,11 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 CODEX_BINARY="/Applications/ChatGPT.app/Contents/Resources/codex"
-SCHEMA_DIR="$(/usr/bin/mktemp -d /tmp/codexvoice-schema.XXXXXX)"
+SCHEMA_DIR="$(/usr/bin/mktemp -d /tmp/nyra-schema.XXXXXX)"
 
 cleanup() {
   case "$SCHEMA_DIR" in
-    /tmp/codexvoice-schema.*) /bin/rm -rf -- "$SCHEMA_DIR" ;;
+    /tmp/nyra-schema.*) /bin/rm -rf -- "$SCHEMA_DIR" ;;
   esac
 }
 trap cleanup EXIT

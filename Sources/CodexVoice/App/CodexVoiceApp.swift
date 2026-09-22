@@ -5,7 +5,7 @@ import SwiftUI
 final class AppRuntime: ObservableObject {
     let codex: CodexAppServerClient
     let capture: AppleSpeechSession
-    let synthesizer: SystemSpeechSynthesizer
+    let synthesizer: PollySpeechSynthesizer
     let coordinator: ConversationCoordinator
     let model: AppModel
     let hotkey: GlobalHotkey
@@ -17,11 +17,12 @@ final class AppRuntime: ObservableObject {
             ?? URL(filePath: "/Applications/ChatGPT.app/Contents/Resources/codex")
         codex = CodexAppServerClient(executableURL: binary)
         capture = AppleSpeechSession()
-        synthesizer = SystemSpeechSynthesizer(
+        let localFallback = SystemSpeechSynthesizer(
             selectedVoiceIdentifier: UserDefaults.standard.string(
                 forKey: AppPreferenceKey.selectedVoiceIdentifier
             )
         )
+        synthesizer = PollySpeechSynthesizer(fallback: localFallback)
         coordinator = ConversationCoordinator(
             codex: codex,
             capture: capture,
@@ -57,15 +58,15 @@ final class AppRuntime: ObservableObject {
     }
 }
 
-final class CodexVoiceAppDelegate: NSObject, NSApplicationDelegate {
+final class NyraAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
     }
 }
 
 @main
-struct CodexVoiceApp: App {
-    @NSApplicationDelegateAdaptor(CodexVoiceAppDelegate.self) private var appDelegate
+struct NyraApp: App {
+    @NSApplicationDelegateAdaptor(NyraAppDelegate.self) private var appDelegate
     @StateObject private var runtime = AppRuntime()
 
     var body: some Scene {
@@ -83,6 +84,6 @@ private struct VoiceStatusIcon: View {
 
     var body: some View {
         Image(systemName: coordinator.state.menuBarSymbol)
-            .accessibilityLabel("Codex Voice: \(coordinator.state.displayName)")
+            .accessibilityLabel("Nyra: \(coordinator.state.displayName)")
     }
 }

@@ -5,11 +5,13 @@ struct MenuBarContentView: View {
     @ObservedObject var runtime: AppRuntime
     @ObservedObject private var model: AppModel
     @ObservedObject private var coordinator: ConversationCoordinator
+    @ObservedObject private var synthesizer: PollySpeechSynthesizer
 
     init(runtime: AppRuntime) {
         self.runtime = runtime
         model = runtime.model
         coordinator = runtime.coordinator
+        synthesizer = runtime.synthesizer
     }
 
     var body: some View {
@@ -29,7 +31,7 @@ struct MenuBarContentView: View {
             }
             Divider()
             permissionSection
-            Text("Conversation uses local speech recognition and half-duplex playback. Right Option interrupts speech or starts/stops a session.")
+            Text("Microphone audio stays on this Mac. Nyra sends finalized text to Codex and sends only Codex's reply text to Amazon Polly for speech. Right Option interrupts speech or starts/stops a session.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -52,7 +54,7 @@ struct MenuBarContentView: View {
                 .font(.title2)
                 .foregroundStyle(coordinator.state.tint)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Codex Voice").font(.headline)
+                Text("Nyra").font(.headline)
                 Text(coordinator.state.displayName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -63,7 +65,7 @@ struct MenuBarContentView: View {
 
     private var taskPicker: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("CODEx TASK").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            Text("CODEX TASK").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
             Picker("Task", selection: Binding(
                 get: { model.selectedTaskID ?? "" },
                 set: { model.selectTask(id: $0) }
@@ -115,25 +117,13 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 5) {
             Text("VOICE").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
             HStack {
-                Picker("Voice", selection: Binding(
-                    get: { runtime.synthesizer.selectedVoiceIdentifier ?? "" },
-                    set: { identifier in
-                        runtime.synthesizer.selectedVoiceIdentifier = identifier
-                        UserDefaults.standard.set(
-                            identifier,
-                            forKey: AppPreferenceKey.selectedVoiceIdentifier
-                        )
-                    }
-                )) {
-                    ForEach(runtime.synthesizer.availableVoices) { voice in
-                        Text(voice.label).tag(voice.id)
-                    }
-                }
-                .labelsHidden()
+                Label(synthesizer.playbackState.label, systemImage: "cloud.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Button("Preview") {
                     Task {
-                        await runtime.synthesizer.speak(
-                            "Hi Patrick. This is the selected Codex Voice."
+                        await synthesizer.speak(
+                            "Hi Patrick. This is Nyra using Amazon Polly Generative speech."
                         )
                     }
                 }

@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Least-privilege Amazon Polly runtime role for the Nyra macOS app.
+
+Parameters:
+  TrustedRoleName:
+    Type: String
+    Default: Admin
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]+"
+    Description: Existing same-account role allowed to assume the Nyra runtime role.
+  RuntimeRegion:
+    Type: String
+    Default: us-west-2
+    AllowedValues:
+      - us-west-2
+
+Resources:
+  NyraPollyRuntimeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: NyraPollyRuntime
+      Description: Allows Nyra to synthesize speech with Amazon Polly only.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${TrustedRoleName}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: NyraPollySynthesis
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - polly:DescribeVoices
+                  - polly:SynthesizeSpeech
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: !Ref RuntimeRegion
+      Tags:
+        - Key: Project
+          Value: Nyra
+
+Outputs:
+  RuntimeRoleArn:
+    Description: Role assumed by Nyra through the local MCS-backed AWS profile.
+    Value: !GetAtt NyraPollyRuntimeRole.Arn
