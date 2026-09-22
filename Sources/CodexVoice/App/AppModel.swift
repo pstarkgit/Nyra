@@ -4,6 +4,8 @@ import Foundation
 enum AppPreferenceKey {
     static let selectedTaskID = "selectedTaskID"
     static let selectedVoiceIdentifier = "selectedVoiceIdentifier"
+    static let speechOutputProvider = "speechOutputProvider"
+    static let selectedPollyVoiceID = "selectedPollyVoiceID"
 }
 
 protocol PreferenceStoring: AnyObject {

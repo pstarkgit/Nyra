@@ -31,7 +31,7 @@ struct MenuBarContentView: View {
             }
             Divider()
             permissionSection
-            Text("Microphone audio stays on this Mac. Nyra sends finalized text to Codex and sends only Codex's reply text to Amazon Polly for speech. Right Option interrupts speech or starts/stops a session.")
+            Text("Microphone audio stays on this Mac. In Polly mode, only Codex's reply text goes to AWS. Apple On-Device mode sends no speech output to AWS. Right Option interrupts speech or starts/stops a session.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -116,18 +116,82 @@ struct MenuBarContentView: View {
     private var voicePicker: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text("VOICE").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            Picker("Output", selection: Binding(
+                get: { synthesizer.provider },
+                set: { synthesizer.selectProvider($0) }
+            )) {
+                ForEach(SpeechOutputProvider.allCases) { provider in
+                    Text(provider.label).tag(provider)
+                }
+            }
+            .pickerStyle(.segmented)
+
             HStack {
-                Label(synthesizer.playbackState.label, systemImage: "cloud.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                voiceSelectionPicker
                 Button("Preview") {
                     Task {
                         await synthesizer.speak(
-                            "Hi Patrick. This is Nyra using Amazon Polly Generative speech."
+                            "Hi Patrick. This is Nyra using the selected voice."
                         )
                     }
                 }
+                if synthesizer.provider == .amazonPolly {
+                    Button {
+                        Task { await synthesizer.refreshPollyVoices() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(synthesizer.isRefreshingPollyVoices)
+                    .help("Refresh AWS Polly voices")
+                }
             }
+
+            Label(
+                synthesizer.statusLabel,
+                systemImage: synthesizer.provider == .appleOnDevice
+                    ? "desktopcomputer" : "cloud.fill"
+            )
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+
+            if synthesizer.isRefreshingPollyVoices {
+                ProgressView("Loading Polly voices…")
+                    .controlSize(.small)
+                    .font(.caption2)
+            } else if synthesizer.provider == .amazonPolly,
+                      let error = synthesizer.voiceCatalogError {
+                Text("Polly catalog unavailable: \(error)")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var voiceSelectionPicker: some View {
+        switch synthesizer.provider {
+        case .appleOnDevice:
+            Picker("Apple voice", selection: Binding(
+                get: { synthesizer.selectedAppleVoiceIdentifier },
+                set: { synthesizer.selectAppleVoice($0) }
+            )) {
+                ForEach(synthesizer.appleVoices) { voice in
+                    Text(voice.label).tag(voice.id)
+                }
+            }
+            .labelsHidden()
+        case .amazonPolly:
+            Picker("Polly voice", selection: Binding(
+                get: { synthesizer.selectedPollyVoiceID },
+                set: { synthesizer.selectPollyVoice($0) }
+            )) {
+                ForEach(synthesizer.pollyVoices) { voice in
+                    Text(voice.label).tag(voice.id)
+                }
+            }
+            .labelsHidden()
         }
     }
 

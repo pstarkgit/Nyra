@@ -14,13 +14,19 @@ only Codex's response text; it never receives microphone audio or partial
 transcripts. If Polly is unavailable, Nyra speaks through the installed local
 Apple voice instead of silently dropping the response.
 
+The menu-bar panel lets you switch at any time between **Apple On-Device** and
+**AWS Polly** output. Each provider remembers its own selected voice. Nyra loads
+the current Polly Generative catalog from AWS and the installed English Apple
+voice catalog from macOS.
+
 ## Conversation flow
 
 1. Launch **Nyra** and choose a Codex task from the menu-bar picker.
 2. Click **Start Voice Session** or press **Right Option**.
 3. Speak naturally. Trailing silence ends the utterance.
 4. Codex works in the selected persisted task.
-5. Polly speaks the result, then Nyra returns to listening.
+5. The selected Apple or Polly voice speaks the result, then Nyra returns to
+   listening.
 
 Playback is half-duplex. Right Option interrupts speech. Command and file
 approvals always require a visible click.

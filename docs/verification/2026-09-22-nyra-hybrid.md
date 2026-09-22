@@ -26,3 +26,11 @@ Date: 2026-09-22 (America/Denver)
 The microphone-to-speaker acceptance requires Patrick to grant microphone
 permission to the new `dev.starkpat.nyra` bundle identity and physically speak
 and hear the requested three cycles. No physical voice pass is claimed here.
+
+## Voice selection extension
+
+Nyra now exposes a persisted Apple On-Device / AWS Polly provider selector plus
+provider-specific voice pickers. The Polly list is loaded from the live
+Generative catalog; Apple voices come from the installed macOS catalog. This
+extension requires a fresh installed-app visual check and physical voice
+acceptance before it is considered complete.

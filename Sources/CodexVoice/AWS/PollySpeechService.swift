@@ -27,13 +27,34 @@ struct PollySpeechConfiguration: Equatable, Sendable {
     }
 }
 
+struct PollyVoiceOption: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let languageCode: String
+    let gender: String
+
+    var label: String {
+        "\(name) · \(languageCode) · \(gender)"
+    }
+
+    static let danielle = PollyVoiceOption(
+        id: PollyClientTypes.VoiceId.danielle.rawValue,
+        name: PollySpeechConfiguration.defaultVoiceName,
+        languageCode: "en-US",
+        gender: "Female"
+    )
+}
+
 enum PollySpeechServiceError: LocalizedError, Equatable {
     case emptyAudio
+    case emptyVoiceCatalog
 
     var errorDescription: String? {
         switch self {
         case .emptyAudio:
             return "Amazon Polly returned no audio."
+        case .emptyVoiceCatalog:
+            return "Amazon Polly returned no Generative voices."
         }
     }
 }
@@ -67,5 +88,44 @@ actor PollySpeechService {
         let data = try await output.audioStream?.readData() ?? Data()
         guard !data.isEmpty else { throw PollySpeechServiceError.emptyAudio }
         return data
+    }
+
+    func availableGenerativeVoices() async throws -> [PollyVoiceOption] {
+        var voices: [PollyVoiceOption] = []
+        var nextToken: String?
+
+        repeat {
+            let output = try await client.describeVoices(input: DescribeVoicesInput(
+                engine: .generative,
+                includeAdditionalLanguageCodes: true,
+                nextToken: nextToken
+            ))
+            voices.append(contentsOf: (output.voices ?? []).compactMap { voice in
+                guard let id = voice.id, let name = voice.name else { return nil }
+                return PollyVoiceOption(
+                    id: id.rawValue,
+                    name: name,
+                    languageCode: voice.languageCode?.rawValue ?? "Unknown",
+                    gender: voice.gender?.rawValue ?? "Unknown"
+                )
+            })
+            nextToken = output.nextToken
+        } while nextToken != nil
+
+        return voices.sorted { left, right in
+            let leftRank = Self.languageRank(left.languageCode)
+            let rightRank = Self.languageRank(right.languageCode)
+            if leftRank != rightRank { return leftRank < rightRank }
+            if left.languageCode != right.languageCode {
+                return left.languageCode < right.languageCode
+            }
+            return left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending
+        }
+    }
+
+    private static func languageRank(_ code: String) -> Int {
+        if code == "en-US" { return 0 }
+        if code.hasPrefix("en-") { return 1 }
+        return 2
     }
 }

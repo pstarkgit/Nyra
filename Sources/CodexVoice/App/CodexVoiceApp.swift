@@ -43,7 +43,11 @@ final class AppRuntime: ObservableObject {
         }
         _ = hotkey.start()
         orb.start()
-        Task { await model.connectAndRefresh() }
+        Task {
+            async let tasks: Void = model.connectAndRefresh()
+            async let voices: Void = synthesizer.refreshPollyVoices()
+            _ = await (tasks, voices)
+        }
     }
 
     func restartHotkey() {
