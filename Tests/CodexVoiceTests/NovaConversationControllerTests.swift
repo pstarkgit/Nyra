@@ -263,6 +263,81 @@ private actor NovaConnectionProbe {
     func inputEventCount() -> Int { eventCount }
 }
 
+@MainActor
+@Test func novaControllerEndIsBoundedWhenConnectionIgnoresCancellation() async throws {
+    let probe = CancellationResistantNovaProbe()
+    let session = NovaSonicSession {
+        input, configuration, output, startInput in
+        try await probe.run(
+            input: input,
+            configuration: configuration,
+            output: output,
+            startInput: startInput
+        )
+    }
+    let controller = NovaConversationController(
+        session: session,
+        audioIO: FakeNovaAudioIO()
+    )
+
+    try await controller.start(voiceID: "tiffany")
+    try await waitUntil { await probe.isSuspended() }
+    let clock = ContinuousClock()
+    let start = clock.now
+
+    await controller.end()
+
+    #expect(start.duration(to: clock.now) < .seconds(1))
+    #expect(controller.state == .idle)
+    #expect(!(await probe.hasExited()))
+
+    await probe.emitLateEvent()
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(controller.state == .idle)
+
+    await probe.release()
+    try await waitUntil { await probe.hasExited() }
+}
+
+private actor CancellationResistantNovaProbe {
+    private var suspended = false
+    private var exited = false
+    private var output: NovaSonicOutputContinuation?
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func run(
+        input: NovaSonicInputStream,
+        configuration: NovaSonicConfiguration,
+        output: NovaSonicOutputContinuation,
+        startInput: NovaSonicInputStarter
+    ) async throws {
+        _ = input
+        _ = configuration
+        self.output = output
+        defer {
+            self.output = nil
+            exited = true
+        }
+        await startInput.start()
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+            suspended = true
+        }
+    }
+
+    func emitLateEvent() {
+        output?.yield(.userSpeechStarted)
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+
+    func isSuspended() -> Bool { suspended }
+    func hasExited() -> Bool { exited }
+}
+
 private func waitUntilOffMain(
     timeout: Duration = .seconds(1),
     condition: @escaping @Sendable () async -> Bool

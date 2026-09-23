@@ -279,7 +279,21 @@ actor NovaSonicSession: NovaSonicStreaming {
         let task = outputTask
         outputTask = nil
         task?.cancel()
-        await task?.value
+        if let task {
+            let completion = AsyncStream<Void> { continuation in
+                Task {
+                    await task.value
+                    continuation.yield()
+                    continuation.finish()
+                }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    continuation.yield()
+                    continuation.finish()
+                }
+            }
+            for await _ in completion { break }
+        }
     }
 
     private func consume(
